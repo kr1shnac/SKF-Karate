@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { Award, DatabaseBackup, Fingerprint, LoaderCircle, Search, ShieldCheck } from 'lucide-react'
+import { Award, DatabaseBackup, Fingerprint, LoaderCircle, Search, ShieldCheck, Settings, X } from 'lucide-react'
 import { isCertificateNumber, isVerificationCode } from '@/lib/certificates/registration'
 import './verify.css'
 
@@ -10,15 +10,7 @@ export default function CertificateSearchPage() {
     const router = useRouter()
     const [query, setQuery] = useState('')
     const [isLoading, setIsLoading] = useState(false)
-    const [error, setError] = useState('')
-
-    /* Reset scanning state whenever this page becomes active again
-       (e.g. user navigated to a certificate and pressed back). */
-    useEffect(() => {
-        const handlePageShow = () => setIsLoading(false)
-        window.addEventListener('pageshow', handlePageShow)
-        return () => window.removeEventListener('pageshow', handlePageShow)
-    }, [])
+    const [maintenance, setMaintenance] = useState(false)
 
     async function handleSearch(e: FormEvent<HTMLFormElement>) {
         e.preventDefault()
@@ -26,37 +18,14 @@ export default function CertificateSearchPage() {
         if (!lookup) return
 
         setIsLoading(true)
-        setError('')
+        setMaintenance(false)
 
-        if (isCertificateNumber(lookup) || isVerificationCode(lookup)) {
-            router.push(`/verify/c/${encodeURIComponent(lookup)}`)
-            return
-        }
+        // Simulate scanning network request for dramatic effect
+        await new Promise(resolve => setTimeout(resolve, 1500))
         
-        try {
-            const apiReq = fetch(`/api/certificates/search?id=${encodeURIComponent(lookup)}`)
-            const res = await apiReq
-            
-            if (!res.ok) {
-                if (res.status === 404) {
-                    throw new Error('Certificate not found.')
-                } else {
-                    throw new Error('Search failed')
-                }
-            }
-            
-            const data = await res.json()
-            if (data.verificationCode) {
-                router.push(`/verify/c/${data.verificationCode}`)
-            } else if (data.skfId && data.enrollmentId) {
-                router.push(`/verify/${data.skfId}/${data.enrollmentId}`)
-            } else {
-                throw new Error('Invalid certificate data from server')
-            }
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Could not complete search. Please try again.')
-            setIsLoading(false)
-        }
+        // Show maintenance state
+        setMaintenance(true)
+        setIsLoading(false)
     }
 
     return (
@@ -117,16 +86,172 @@ export default function CertificateSearchPage() {
                     </div>
                 </form>
 
-                {/* ═══════ ERROR STATE ═══════ */}
-                {error && (
-                    <div className="verify-error">
-                        <div className="error-icon">
-                            <span style={{ position: 'relative', top: '-1px' }}>!</span>
+                {/* ═══════ MAINTENANCE POPUP ═══════ */}
+                {maintenance && (
+                    <div style={{
+                        position: 'fixed',
+                        top: 0, left: 0, right: 0, bottom: 0,
+                        backgroundColor: 'rgba(5, 8, 15, 0.85)',
+                        backdropFilter: 'blur(12px)',
+                        WebkitBackdropFilter: 'blur(12px)',
+                        zIndex: 9999,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '1rem',
+                        animation: 'verifyOverlayFade 0.3s ease forwards'
+                    }}>
+                        <div style={{
+                            position: 'relative',
+                            padding: '3rem 2.5rem',
+                            borderRadius: '24px',
+                            background: 'linear-gradient(145deg, rgba(20, 20, 25, 0.95), rgba(10, 10, 12, 0.95))',
+                            border: '1px solid rgba(255, 183, 3, 0.15)',
+                            boxShadow: '0 30px 60px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,183,3,0.1)',
+                            overflow: 'hidden',
+                            textAlign: 'center',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '1.2rem',
+                            maxWidth: '460px',
+                            width: '100%',
+                            animation: 'verifyPopupIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+                        }}>
+                            {/* Close Button */}
+                            <button 
+                                onClick={() => setMaintenance(false)}
+                                style={{
+                                    position: 'absolute',
+                                    top: '1.25rem',
+                                    right: '1.25rem',
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: 'none',
+                                    borderRadius: '50%',
+                                    width: '32px',
+                                    height: '32px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: 'rgba(255,255,255,0.5)',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    zIndex: 10
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                                    e.currentTarget.style.color = '#fff';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                                    e.currentTarget.style.color = 'rgba(255,255,255,0.5)';
+                                }}
+                                aria-label="Close"
+                            >
+                                <X size={18} />
+                            </button>
+
+                            {/* Ambient Glow */}
+                            <div style={{
+                                position: 'absolute',
+                                top: '-50%', left: '50%',
+                                transform: 'translateX(-50%)',
+                                width: '200px', height: '100px',
+                                background: 'rgba(255, 183, 3, 0.2)',
+                                filter: 'blur(60px)',
+                                pointerEvents: 'none'
+                            }} />
+                            
+                            {/* Icon Badge */}
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: '72px',
+                                height: '72px',
+                                borderRadius: '50%',
+                                background: 'linear-gradient(135deg, rgba(255, 183, 3, 0.1), rgba(255, 183, 3, 0.02))',
+                                border: '1px solid rgba(255, 183, 3, 0.3)',
+                                boxShadow: '0 0 30px rgba(255, 183, 3, 0.15), inset 0 0 15px rgba(255, 183, 3, 0.1)',
+                                color: '#ffb703',
+                                marginBottom: '0.5rem'
+                            }}>
+                                <Settings className="verify-spin-slow" size={32} />
+                            </div>
+
+                            {/* Text Content */}
+                            <div>
+                                <h3 style={{ 
+                                    color: '#fff', 
+                                    fontSize: '1.75rem', 
+                                    fontWeight: 700, 
+                                    marginBottom: '0.75rem',
+                                    letterSpacing: '-0.02em',
+                                    fontFamily: 'var(--font-heading)'
+                                }}>
+                                    System Upgrade
+                                </h3>
+                                <p style={{ 
+                                    color: 'rgba(255,255,255,0.6)', 
+                                    fontSize: '1rem',
+                                    lineHeight: '1.6',
+                                    maxWidth: '420px',
+                                    margin: '0 auto'
+                                }}>
+                                    Our global certificate registry is currently undergoing a scheduled infrastructure upgrade to bring you an even better verification experience.
+                                </p>
+                            </div>
+                            
+                            {/* Status Pill */}
+                            <div style={{
+                                marginTop: '1rem',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.6rem',
+                                padding: '0.5rem 1.25rem',
+                                borderRadius: '100px',
+                                background: 'rgba(255,255,255,0.03)',
+                                border: '1px solid rgba(255,255,255,0.08)',
+                                fontSize: '0.75rem',
+                                color: 'rgba(255,255,255,0.5)',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.15em',
+                                fontWeight: 600
+                            }}>
+                                <span style={{ 
+                                    width: '8px', 
+                                    height: '8px', 
+                                    borderRadius: '50%', 
+                                    background: '#ffb703', 
+                                    boxShadow: '0 0 10px #ffb703', 
+                                    display: 'inline-block', 
+                                    animation: 'verifyPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' 
+                                }} />
+                                Maintenance Mode
+                            </div>
                         </div>
-                        <div className="error-content">
-                            <h3>{error}</h3>
-                            <p>Please double-check the ID from your physical document or email. Certificate IDs are accepted in uppercase or lowercase.</p>
-                        </div>
+                        
+                        <style>{`
+                            @keyframes verifyOverlayFade {
+                                from { opacity: 0; backdrop-filter: blur(0px); }
+                                to { opacity: 1; backdrop-filter: blur(12px); }
+                            }
+                            @keyframes verifyPopupIn {
+                                from { opacity: 0; transform: translateY(30px) scale(0.95); }
+                                to { opacity: 1; transform: translateY(0) scale(1); }
+                            }
+                            @keyframes verifyPulse {
+                                0%, 100% { opacity: 0.5; box-shadow: 0 0 4px #ffb703; }
+                                50% { opacity: 1; box-shadow: 0 0 15px #ffb703, 0 0 5px #fff; }
+                            }
+                            .verify-spin-slow {
+                                animation: verifySpin 12s linear infinite;
+                            }
+                            @keyframes verifySpin {
+                                from { transform: rotate(0deg); }
+                                to { transform: rotate(360deg); }
+                            }
+                        `}</style>
                     </div>
                 )}
 

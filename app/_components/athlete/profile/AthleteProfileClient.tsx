@@ -670,7 +670,7 @@ export default function AthleteProfileClient({
 
         <NextEventsSection nextEvents={nextEvents} />
         <TabbedCompetitions categories={categories} isDashboardContext={isDashboardContext} />
-        {isDashboardContext && <PublicCertificates skfId={athleteInfo.id} onOpenCertificate={handleOpenCertificate} />}
+
         <BeltJourney beltExaminations={beltExaminations} beltColors={beltColors} />
         <SpecialEventsSection specialEvents={specialEvents} isDashboardContext={isDashboardContext} />
       </div>
