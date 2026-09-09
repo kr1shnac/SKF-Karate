@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 
 import SecureContentWrapper from '@/app/_components/portal/SecureContentWrapper'
+import PortalNoticePopup from '@/app/_components/portal/PortalNoticePopup'
 import YouTubeNativePlayer from '@/components/video/YouTubeNativePlayer'
 import YouTubeThumbnail from '@/components/video/YouTubeThumbnail'
 import { VideosPageSkeleton } from '../_components/skeletons/VideosPageSkeleton'
@@ -66,7 +67,8 @@ const PRACTICE_LIBRARY_CSS = `
   background:radial-gradient(circle,rgba(45,212,191,.035) 0%,transparent 70%);pointer-events:none;z-index:0}
 
 /* ── Hero ── */
-.pv-hero{position:relative;max-width:1440px;margin:0 auto;padding:clamp(2.5rem,7vw,4.25rem) var(--pv-pad-x) clamp(2.25rem,4.5vw,3.25rem)}
+.pv-hero{position:relative;max-width:1440px;margin:0 auto;
+  padding:max(env(safe-area-inset-top),clamp(2.5rem,7vw,4.25rem)) var(--pv-pad-x) clamp(2.25rem,4.5vw,3.25rem)}
 .pv-hero-kanji{position:absolute;top:44%;right:max(1%,0);transform:translateY(-50%);
   font-size:clamp(11rem,26vw,19rem);line-height:1;font-weight:900;color:#fff;opacity:.03;
   user-select:none;pointer-events:none;font-family:var(--pv-heading)}
@@ -83,7 +85,7 @@ const PRACTICE_LIBRARY_CSS = `
 /* Even grid — stat cards always line up in clean rows (2×2 on compact, 4-across on desktop) */
 .pv-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.8rem;margin-top:1.9rem}
 @media (min-width:900px){.pv-stats{grid-template-columns:repeat(4,minmax(0,1fr))}}
-.pv-stat{display:flex;align-items:center;gap:.8rem;padding:.85rem 1.15rem;border-radius:18px;
+.pv-stat{display:flex;align-items:center;gap:.8rem;padding:.85rem 1.15rem;border-radius:18px;min-width:0;
   border:1px solid var(--pv-edge);background:linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,.008));
   -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 .pv-stat-ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex-shrink:0;border:1px solid}
@@ -91,7 +93,7 @@ const PRACTICE_LIBRARY_CSS = `
 .pv-stat-ic--red{background:rgba(214,40,40,.1);border-color:rgba(214,40,40,.26);color:#ff7b7b}
 .pv-stat-ic--jade{background:rgba(45,212,191,.1);border-color:rgba(45,212,191,.26);color:var(--pv-jade)}
 .pv-stat-ic--neutral{background:rgba(255,255,255,.06);border-color:var(--pv-edge-2);color:#fff}
-.pv-stat-val{display:block;font-family:var(--pv-heading);font-size:1.32rem;font-weight:850;line-height:1;color:#fff}
+.pv-stat-val{display:block;min-width:0;font-family:var(--pv-heading);font-size:1.32rem;font-weight:850;line-height:1;color:#fff}
 .pv-stat-lbl{display:block;margin-top:.3rem;font-size:.62rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--pv-dimmer)}
 
 .pv-searchwrap{position:relative;max-width:540px;margin-top:1.7rem}
@@ -302,7 +304,7 @@ const PRACTICE_LIBRARY_CSS = `
 
 /* ---------- Breakpoints ---------- */
 @media (max-width:640px){
-  .pv-hero{padding-top:clamp(2rem,6vw,2.75rem)}
+  .pv-hero{padding-top:max(env(safe-area-inset-top),clamp(2rem,6vw,2.75rem))}
   .pv-hero-kanji{top:auto;bottom:-2.5rem;transform:none;opacity:.025}
   .pv-shell{gap:2.4rem}
   .pv-grid{gap:1rem}
@@ -320,6 +322,13 @@ const PRACTICE_LIBRARY_CSS = `
 @media (max-width:380px){
   .pv-grid{gap:.8rem}
   .pv-grid-videos .pv-tiletitle{font-size:.98rem}
+  .pv-stats{gap:.6rem}
+  .pv-stat{padding:.7rem .9rem;gap:.6rem}
+  .pv-stat-ic{width:36px;height:36px;border-radius:10px}
+  .pv-stat-val{font-size:1.15rem}
+  .pv-stat-lbl{font-size:.55rem;letter-spacing:.1em}
+  .pv-pbar{gap:.4rem}
+  .pv-chipbtn{padding:.3rem .6rem}
 }
 @media (orientation:landscape) and (max-height:500px){
   .pv-pbar{padding-top:.4rem;padding-bottom:.4rem;gap:.5rem}
@@ -581,6 +590,7 @@ export default function VideosClient({ initialPayload = null }) {
 
   return (
     <SecureContentWrapper>
+      <PortalNoticePopup />
       <MotionConfig reducedMotion="user">
       {isLoading ? (
         <VideosPageSkeleton />

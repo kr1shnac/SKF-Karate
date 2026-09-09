@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
+import { BELTS } from '@/data/constants/belts'
+
 import { findClassBranchByName, findClassBranchBySlug } from '@/lib/classes/catalog'
 import { ApiError } from '@/lib/server/api'
 import { isPublicTechniqueVideosEnabled } from '@/lib/server/feature-flags'
@@ -481,6 +483,39 @@ function normalisePracticePhotoPayload(payload: PracticePhotoPayload) {
   }
 }
 
+/**
+ * Partial-update overrides for practice content. Only the audience dimensions
+ * (and sort order) the payload actually sends are written back — an edit that
+ * omits branch, batch, belt, or sortOrder leaves the stored value untouched so
+ * selections and drag ordering are never wiped by a rename/description change.
+ * Sending an explicit empty array clears a dimension.
+ */
+function pickPracticeUpdateOverrides(payload: Record<string, unknown>) {
+  const overrides: Record<string, unknown> = {}
+  if ('branchSlugs' in payload || 'branch_slugs' in payload) {
+    overrides.branch_slugs = normalizeTextList(payload.branchSlugs === undefined ? payload.branch_slugs : payload.branchSlugs)
+  }
+  if ('batchNames' in payload || 'batch_names' in payload) {
+    overrides.batch_names = normalizeTextList(payload.batchNames === undefined ? payload.batch_names : payload.batchNames)
+  }
+  if ('beltLevels' in payload || 'belt_levels' in payload) {
+    const raw = payload.beltLevels === undefined ? payload.belt_levels : payload.beltLevels
+    overrides.belt_levels = normalizeTextList(raw).map((belt) => normalizeBeltLevel(belt))
+  }
+  if ('sortOrder' in payload || 'sort_order' in payload) {
+    const raw = payload.sortOrder === undefined ? payload.sort_order : payload.sortOrder
+    overrides.sort_order = Number(raw) || 0
+  }
+  return overrides
+}
+
+function applyPracticeUpdateOverrides(normalized: Record<string, unknown>, payload: Record<string, unknown>) {
+  const update: Record<string, unknown> = { ...normalized }
+  for (const key of ['branch_slugs', 'batch_names', 'belt_levels', 'sort_order']) delete update[key]
+  Object.assign(update, pickPracticeUpdateOverrides(payload))
+  return update
+}
+
 function normaliseBranchTimetablePayload(payload: BranchTimetablePayload) {
   const branchSlug = String(payload.branchSlug || payload.branch_slug || '').trim()
   const driveUrl = String(payload.driveUrl || payload.drive_url || '').trim()
@@ -540,6 +575,19 @@ function matchesAudienceFilter(values: string[], candidate: string) {
   )
 }
 
+/**
+ * Branch slugs are entered by hand in several forms ("m-p-sports-club",
+ * "mp-sports-club", "MP Sports Club"). Compare them after dropping
+ * separators so content is never hidden by a stray hyphen or space.
+ */
+function matchesBranchSlugFilter(values: string[], candidate: string) {
+  if (!values.length) return true
+  if (!candidate) return false
+  const normalize = (value: string) => String(value).trim().toLowerCase().replace(/[\s-]+/g, '')
+  const normalizedCandidate = normalize(candidate)
+  return values.some((value) => normalize(value) === normalizedCandidate)
+}
+
 type PracticeAudience = {
   branchSlugs: string[]
   batchNames: string[]
@@ -553,7 +601,7 @@ export function practiceAudienceMatches(
   context: AthletePracticeAudience
 ) {
   return (
-    matchesAudienceFilter(audience.branchSlugs, context.branchSlug) &&
+    matchesBranchSlugFilter(audience.branchSlugs, context.branchSlug) &&
     matchesAudienceFilter(audience.batchNames, context.batch) &&
     matchesAudienceFilter(audience.beltLevels, context.belt)
   )
@@ -563,12 +611,24 @@ function matchesVideoAudience(video: PortalVideoRecord, context: AthletePractice
   return practiceAudienceMatches(video, context)
 }
 
-function matchesFolderAudience(folder: PracticeFolderRecord, context: AthletePracticeAudience) {
-  return practiceAudienceMatches(folder, context)
+const BELT_RANK = new Map(BELTS.map((belt, index) => [belt.colour, index]))
+
+/**
+ * Ranking rule that drives the practice shelf order: content with no belt
+ * restriction is general and leads; belt-specific content then climbs from
+ * White to Black. Collisions fall back to featured → drag sort order → title.
+ */
+function beltSortRank(beltLevels: unknown[] | undefined) {
+  const ranks = (beltLevels || []).map((level) => BELT_RANK.get(normalizeBeltLevel(level as string)) ?? 99)
+  if (!ranks.length) return -1
+  return Math.min(...ranks)
 }
 
 function sortPortalVideos(videos: PortalVideoRecord[]) {
   return [...videos].sort((a, b) => {
+    const beltDiff = beltSortRank(a.beltLevels) - beltSortRank(b.beltLevels)
+    if (beltDiff !== 0) return beltDiff
+
     const featuredDiff = Number(b.isFeatured) - Number(a.isFeatured)
     if (featuredDiff !== 0) return featuredDiff
 
@@ -600,7 +660,7 @@ export async function getAllPortalVideosAdmin() {
       .order('title', { ascending: true })
 
     if (error) throw error
-    return (data || []).map(mapPortalVideoRow)
+    return sortPortalVideos((data || []).map(mapPortalVideoRow))
   } catch (error) {
     logger.warn('portal_content.videos_load_failed', { error })
     return []
@@ -673,9 +733,10 @@ export async function getProtectedPortalVideosForAthlete(context: {
 }
 
 /**
- * Folder visibility is an additional gate, not a replacement for a lesson's
- * own audience. This means a lesson can be narrowed inside a broad folder but
- * can never accidentally reach a belt, branch, or batch excluded by its folder.
+ * Folders are organisational shelves. They never gate content by branch,
+ * batch, or belt: a lesson shown through a folder is decided solely by the
+ * lesson's own audience. A folder only needs to be published (along with its
+ * ancestor chain) for its content to appear.
  */
 export async function getPracticeLibraryForAthlete(context: {
   branchName?: string | null
@@ -694,11 +755,11 @@ export async function getPracticeLibraryForAthlete(context: {
   }
 
   const folderById = new Map(allFolders.map((folder) => [folder.id, folder]))
-  const folderAndAncestorMatchAudience = (folder: PracticeFolderRecord) => {
+  const folderAndAncestorsPublished = (folder: PracticeFolderRecord) => {
     const visited = new Set<string>()
     let current: PracticeFolderRecord | undefined = folder
     while (current) {
-      if (visited.has(current.id) || !current.isPublished || !matchesFolderAudience(current, audience)) return false
+      if (visited.has(current.id) || !current.isPublished) return false
       visited.add(current.id)
       current = current.parentFolderId ? folderById.get(current.parentFolderId) : undefined
     }
@@ -708,13 +769,13 @@ export async function getPracticeLibraryForAthlete(context: {
   const visibleVideos = sortPortalVideos(allVideos.filter((video) => {
     if (!video.isPublished || !matchesVideoAudience(video, audience)) return false
     const folder = video.folderId ? folderById.get(video.folderId) : undefined
-    return !video.folderId || Boolean(folder && folderAndAncestorMatchAudience(folder))
+    return !video.folderId || Boolean(folder && folderAndAncestorsPublished(folder))
   }))
-  const visibleFolders = sortPracticeFolders(allFolders.filter(folderAndAncestorMatchAudience))
+  const visibleFolders = sortPracticeFolders(allFolders.filter(folderAndAncestorsPublished))
   const visiblePhotos = allPhotos.filter((photo) => {
     if (!photo.isPublished || !matchesPracticePhotoAudience(photo, audience)) return false
     const folder = photo.folderId ? folderById.get(photo.folderId) : undefined
-    return !photo.folderId || Boolean(folder && folderAndAncestorMatchAudience(folder))
+    return !photo.folderId || Boolean(folder && folderAndAncestorsPublished(folder))
   })
   const signedPhotos = await Promise.all(visiblePhotos.map(async (photo) => {
     const { data, error } = await supabaseAdmin.storage.from('portal-practice-images').createSignedUrl(photo.storagePath, 60 * 30)
@@ -824,9 +885,10 @@ export async function updatePracticeFolder(id: string, payload: PracticeFolderPa
   ensureSupabaseForPortalContent()
   const normalized = normalisePracticeFolderPayload({ ...payload, id })
   await assertValidPracticeFolderParent(id, String(normalized.parent_folder_id || ''))
+  const update = applyPracticeUpdateOverrides(normalized, { ...payload, id })
   const { data, error } = await supabaseAdmin
     .from('portal_practice_folders')
-    .update(normalized)
+    .update(update)
     .eq('id', id)
     .select('*')
     .single()
@@ -872,9 +934,11 @@ export async function updatePortalVideo(id: string, payload: PortalVideoPayload)
     id,
   })
 
+  const update = applyPracticeUpdateOverrides(normalized, { ...payload, id })
+
   const { data, error } = await supabaseAdmin
     .from('portal_videos')
-    .update(normalized)
+    .update(update)
     .eq('id', id)
     .select('*')
     .single()
@@ -903,6 +967,34 @@ export async function deletePortalVideo(id: string) {
   ensureSupabaseForPortalContent()
   const { error } = await supabaseAdmin.from('portal_videos').delete().eq('id', id)
   if (error) handlePortalContentError(error, 'portal_videos')
+}
+
+export type PracticeReorderScope = 'folders' | 'videos' | 'photos'
+
+const PRACTICE_REORDER_TABLE: Record<PracticeReorderScope, string> = {
+  folders: 'portal_practice_folders',
+  videos: 'portal_videos',
+  photos: 'portal_practice_photos',
+}
+
+/**
+ * Applies a dragged order from FeeTrack by rewriting sort_order for each row
+ * in the given scope. The portal already renders practice content with
+ * `sort_order` ascending, so the first entry in `orderedIds` appears first.
+ */
+export async function reorderPracticeContent(scope: PracticeReorderScope, orderedIds: string[]) {
+  ensureSupabaseForPortalContent()
+  const ids = [...new Set(orderedIds.map((id) => String(id).trim()).filter((id) => id.length > 0))]
+  if (!ids.length) throw new ApiError(400, 'Provide at least one practice content ID to reorder.')
+  const table = PRACTICE_REORDER_TABLE[scope]
+  for (let index = 0; index < ids.length; index += 1) {
+    const { error } = await supabaseAdmin
+      .from(table)
+      .update({ sort_order: index * 10 })
+      .eq('id', ids[index])
+    if (error) handlePortalContentError(error, table)
+  }
+  return { scope, orderedIds: ids }
 }
 
 export async function getAllBranchTimetablesAdmin() {

@@ -1,7 +1,7 @@
 import type { Session } from 'next-auth'
 import { createHash, randomUUID } from 'node:crypto'
 
-import { getAllAthletesLive, getAthleteBySkfIdLive } from '@/lib/server/repositories/athletes-live'
+import { getAllAthletesLive, getAthleteBySkfIdLive, setAthletePortalStatus } from '@/lib/server/repositories/athletes-live'
 import { ensureFeeRowsForStudent } from '@/lib/server/repositories/fee-records'
 import { getLocalProfilePhotoFile, resolveServerAthleteProfilePhoto } from '@/lib/server/profile-photos'
 import { isSupabaseReady, supabaseAdmin } from '@/lib/server/supabase'
@@ -2813,6 +2813,9 @@ export class FeeOperationsService {
         notes: reason,
       })
 
+      // Restore athlete portal access alongside billing (discontinued flips it off).
+      await setAthletePortalStatus(skfId, 'active')
+
       const synced = await ensureFeeRowsForStudent(skfId, {
         monthlyFee,
         enrolledDate: periodStartDate(targetYear, month),
@@ -2902,6 +2905,9 @@ export class FeeOperationsService {
           .eq('id', row.id)
         if (error) throwFeeDatabaseError(error)
       }
+
+      // Discontinued students lose athlete-portal access; resume_billing restores it.
+      await setAthletePortalStatus(skfId, 'inactive')
 
       await logAudit(session, {
         action: 'fee_student_discontinued_tracking_stopped',

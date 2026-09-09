@@ -778,3 +778,18 @@ export async function getAthleteRankOrFallback(athleteId: string) {
     ? getAthleteRankLive(athleteId)
     : Promise.resolve(getAthleteRank(athleteId))
 }
+
+/**
+ * Flip an athlete's portal eligibility (athletes.status). The athlete portal
+ * only lets students log in when status is 'active', so this is what removes
+ * (or restores) portal access when billing is discontinued / resumed.
+ */
+export async function setAthletePortalStatus(skfId: string, status: 'active' | 'inactive') {
+  if (!isSupabaseReady()) return
+  const normalizedSkfId = normaliseSkfId(String(skfId || '').trim().toUpperCase())
+  if (!normalizedSkfId) return
+  await supabaseAdmin
+    .from('athletes')
+    .update({ status })
+    .eq('skf_id', normalizedSkfId)
+}

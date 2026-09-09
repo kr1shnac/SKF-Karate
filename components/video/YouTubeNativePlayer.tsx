@@ -18,6 +18,7 @@ type YouTubePlayer = {
   getDuration: () => number
   getVolume: () => number
   setVolume: (volume: number) => void
+  setPlaybackQuality: (quality: string) => void
   mute: () => void
   unMute: () => void
   isMuted: () => boolean
@@ -178,6 +179,7 @@ export default function YouTubeNativePlayer({
             showinfo: 0,
             origin: window.location.origin,
             enablejsapi: 1,
+            playsinline: 1,
           },
           events: {
             onReady: () => {
@@ -191,6 +193,11 @@ export default function YouTubeNativePlayer({
               iframe.style.height = '100%'
 
               player.setVolume(80)
+              try {
+                player.setPlaybackQuality('hd1080')
+              } catch {
+                // Older/I-Frame API builds may not expose the quality setter.
+              }
               setDuration(player.getDuration() || 0)
               setIsReady(true)
 

@@ -30,6 +30,7 @@ import {
   getAllPracticePhotosAdmin,
   getAllPortalVideosAdmin,
   getHomePracticeAnalytics,
+  reorderPracticeContent,
   updatePracticeFolder,
   updatePortalVideo,
 } from '@/lib/server/repositories/portal-content-live'
@@ -2889,6 +2890,25 @@ async function deletePortalVideoFromFeeTrack(session: FeeTrackSession, body: Act
   return { success: true, data: { videoId } }
 }
 
+type PracticeReorderScope = 'folders' | 'videos' | 'photos'
+
+async function reorderPracticeContentForFeeTrack(session: FeeTrackSession, body: ActionBody) {
+  assertPortalContentWrite(session)
+  const scope = String(body.scope || body.type || '').trim() as PracticeReorderScope
+  if (!['folders', 'videos', 'photos'].includes(scope)) {
+    throw new ValidationError({ scope: ['Scope must be one of: folders, videos, photos.'] })
+  }
+  const orderedIds = Array.isArray(body.orderedIds)
+    ? body.orderedIds.map((entry) => String(entry).trim()).filter((entry) => entry.length > 0)
+    : []
+  if (!orderedIds.length) {
+    throw new ValidationError({ orderedIds: ['orderedIds must contain at least one content ID.'] })
+  }
+  const result = await reorderPracticeContent(scope, orderedIds)
+  revalidatePortalSitePaths()
+  return { success: true, data: result }
+}
+
 async function getBranchTimetables(session: FeeTrackSession) {
   assertPortalContentWrite(session)
   const timetables = await getAllBranchTimetablesAdmin()
@@ -3213,6 +3233,8 @@ async function handleAction(body: ActionBody) {
       return upsertPortalVideo(session, body)
     case 'delete_portal_video':
       return deletePortalVideoFromFeeTrack(session, body)
+    case 'reorder_practice_content':
+      return reorderPracticeContentForFeeTrack(session, body)
     case 'get_branch_timetables':
       return getBranchTimetables(session)
     case 'get_gallery_photos':
