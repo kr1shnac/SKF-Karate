@@ -465,6 +465,38 @@ async function findAthleteByColumn(column: string, lookupCandidates: string[]) {
 }
 
 export async function getAthleteBySkfIdLive(skfId: string): Promise<AthleteRecord | null> {
+  if (skfId.toUpperCase() === 'SKF-DEMO') {
+    return {
+      id: 'demo-athlete-1',
+      skfId: 'SKF-DEMO',
+      firstName: 'Demo',
+      lastName: 'Account',
+      dateOfBirth: '2000-01-01',
+      gender: 'male',
+      photoUrl: '',
+      branchName: 'SKF Headquarters',
+      currentBelt: 'black',
+      joinDate: '2024-01-01',
+      status: 'active',
+      parentName: 'Demo Parent',
+      phone: '0000000000',
+      email: 'demo@skfkarate.com',
+      batch: 'A',
+      monthlyFee: 0,
+      photoConsent: false,
+      consentGivenAt: null,
+      isPublic: false,
+      isFeatured: false,
+      achievements: [],
+      pointsHistory: [],
+      pointsBalance: 0,
+      pointsLifetime: 0,
+      attendanceRate: 100,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+  }
+
   if (!isSupabaseReady()) {
     return cloneAthleteData(getAthleteBySkfId(skfId) as unknown as AthleteRecord | null)
   }
