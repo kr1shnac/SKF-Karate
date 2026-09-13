@@ -327,10 +327,10 @@
   transition:all .3s ease;cursor:pointer}
 .pv-huge-complete:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.3);color:#fff}
 .pv-huge-complete--on{background:rgba(45,212,191,.12);border:1px solid rgba(45,212,191,.5);color:var(--pv-jade);
-  box-shadow:0 10px 30px rgba(45,212,191,.2),inset 0 0 15px rgba(45,212,191,.15);
+  box-shadow:inset 0 0 15px rgba(45,212,191,.15);
   text-shadow:0 0 10px rgba(45,212,191,.4)}
 .pv-huge-complete--on:hover{background:rgba(45,212,191,.2);border-color:rgba(45,212,191,.8);
-  box-shadow:0 15px 40px rgba(45,212,191,.35),inset 0 0 20px rgba(45,212,191,.25)}
+  box-shadow:inset 0 0 20px rgba(45,212,191,.25)}
 
 /* Practiced ✓ — deliberate drilling is a first-class action, not an afterthought */
 .pv-vactions{display:flex;flex-direction:column;gap:.7rem;margin-top:.5rem}
