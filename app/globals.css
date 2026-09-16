@@ -78,7 +78,7 @@ html {
   font-size: 16px;
   -ms-overflow-style: none; /* IE and Edge */
   scrollbar-width: none; /* Firefox */
-  overflow-x: hidden;
+  overflow-x: clip;
   width: 100%;
 }
 
@@ -92,7 +92,7 @@ body {
   background: var(--bg-body);
   color: var(--text-white);
   line-height: 1.6;
-  overflow-x: hidden;
+  overflow-x: clip;
   width: 100%;
   position: relative;
   -webkit-font-smoothing: antialiased;

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { cache } from 'react'
 
 import { BELTS } from '@/data/constants/belts'
 
@@ -7,6 +8,8 @@ import { ApiError } from '@/lib/server/api'
 import { isPublicTechniqueVideosEnabled } from '@/lib/server/feature-flags'
 import { isSupabaseReady, supabaseAdmin } from '@/lib/server/supabase'
 import { extractYouTubeId, getYouTubeThumbnailUrl, YOUTUBE_ID_PATTERN } from '@/lib/youtube'
+import { cached, claimThrottleMarker, invalidateCache } from '@/src/server/lib/cache'
+import { WATCHED_THRESHOLD } from '@/src/server/services/recommend-practice-video'
 import { logger } from '@/src/server/lib/logger'
 
 import { getAllCitiesLive } from './classes-live'
@@ -543,7 +546,7 @@ function normaliseBranchTimetablePayload(payload: BranchTimetablePayload) {
   }
 }
 
-async function resolveBranchSlugForName(branchName?: string | null) {
+const resolveBranchSlugForName = cache(async function resolveBranchSlugForName(branchName?: string | null) {
   if (!branchName) return ''
   const cities = await getAllCitiesLive()
   return (
@@ -551,7 +554,7 @@ async function resolveBranchSlugForName(branchName?: string | null) {
     findClassBranchBySlug(cities, branchName)?.slug ||
     slugify(branchName)
   )
-}
+})
 
 function matchesAudienceFilter(values: string[], candidate: string) {
   if (!values.length) return true
@@ -652,53 +655,54 @@ function sortPracticeFolders(folders: PracticeFolderRecord[]) {
 export async function getAllPortalVideosAdmin() {
   if (!isSupabaseReady()) return []
 
-  try {
+  return cached<PortalVideoRecord[]>('portal:videos:all', 60, async () => {
     const { data, error } = await supabaseAdmin
       .from('portal_videos')
       .select('*')
       .order('sort_order', { ascending: true })
       .order('title', { ascending: true })
 
-    if (error) throw error
+    if (error) {
+      logger.warn('portal_content.videos_load_failed', { error })
+      throw error
+    }
     return sortPortalVideos((data || []).map(mapPortalVideoRow))
-  } catch (error) {
-    logger.warn('portal_content.videos_load_failed', { error })
-    return []
-  }
+  })
 }
 
 export async function getAllPracticeFoldersAdmin() {
   if (!isSupabaseReady()) return []
 
-  try {
+  return cached<PracticeFolderRecord[]>('portal:folders:all', 60, async () => {
     const { data, error } = await supabaseAdmin
       .from('portal_practice_folders')
       .select('*')
       .order('sort_order', { ascending: true })
       .order('title', { ascending: true })
 
-    if (error) throw error
+    if (error) {
+      logger.warn('portal_content.practice_folders_load_failed', { error })
+      throw error
+    }
     return (data || []).map(mapPracticeFolderRow)
-  } catch (error) {
-    logger.warn('portal_content.practice_folders_load_failed', { error })
-    return []
-  }
+  })
 }
 
 export async function getAllPracticePhotosAdmin() {
   if (!isSupabaseReady()) return []
-  try {
+
+  return cached<PracticePhotoRecord[]>('portal:photos:all', 60, async () => {
     const { data, error } = await supabaseAdmin
       .from('portal_practice_photos')
       .select('*')
       .order('sort_order', { ascending: true })
       .order('title', { ascending: true })
-    if (error) throw error
+    if (error) {
+      logger.warn('portal_content.practice_photos_load_failed', { error })
+      throw error
+    }
     return (data || []).map(mapPracticePhotoRow)
-  } catch (error) {
-    logger.warn('portal_content.practice_photos_load_failed', { error })
-    return []
-  }
+  })
 }
 
 export async function getPortalVideosForAthlete(context: {
@@ -766,24 +770,104 @@ export async function getPracticeLibraryForAthlete(context: {
     return true
   }
 
-  const visibleVideos = sortPortalVideos(allVideos.filter((video) => {
-    if (!video.isPublished || !matchesVideoAudience(video, audience)) return false
-    const folder = video.folderId ? folderById.get(video.folderId) : undefined
-    return !video.folderId || Boolean(folder && folderAndAncestorsPublished(folder))
-  }))
+  /**
+   * Availability modes for library content:
+   * - 'audience': normal audience + folder gating. A broken (missing) folder
+   *   reference never hides a published lesson — it surfaces as unfiled.
+   * - 'fallback-all-published': emergency fallback that surfaces every published
+   *   lesson regardless of audience or folder gating, so an athlete never sees
+   *   an empty library when published content exists.
+   */
+  const visibleVideosFor = (mode: 'audience' | 'fallback-all-published') =>
+    sortPortalVideos(
+      allVideos
+        .filter((video) => {
+          if (!video.isPublished) return false
+          if (mode === 'audience') {
+            const folder = video.folderId ? folderById.get(video.folderId) : undefined
+            if (video.folderId && !folder) return true
+            if (video.folderId && folder && !folderAndAncestorsPublished(folder)) return false
+            if (!matchesVideoAudience(video, audience)) return false
+          }
+          return true
+        })
+        .map((video) => {
+          const folder = video.folderId ? folderById.get(video.folderId) : undefined
+          if (video.folderId && folder && folderAndAncestorsPublished(folder)) return video
+          return { ...video, folderId: '' }
+        })
+    )
+
+  const visiblePhotosFor = (mode: 'audience' | 'fallback-all-published') =>
+    allPhotos
+      .filter((photo) => {
+        if (!photo.isPublished) return false
+        if (mode === 'audience') {
+          const folder = photo.folderId ? folderById.get(photo.folderId) : undefined
+          if (photo.folderId && !folder) return true
+          if (photo.folderId && folder && !folderAndAncestorsPublished(folder)) return false
+          if (!matchesPracticePhotoAudience(photo, audience)) return false
+        }
+        return true
+      })
+      .map((photo) => {
+        const folder = photo.folderId ? folderById.get(photo.folderId) : undefined
+        if (photo.folderId && folder && folderAndAncestorsPublished(folder)) return photo
+        return { ...photo, folderId: '' }
+      })
+
   const visibleFolders = sortPracticeFolders(allFolders.filter(folderAndAncestorsPublished))
-  const visiblePhotos = allPhotos.filter((photo) => {
-    if (!photo.isPublished || !matchesPracticePhotoAudience(photo, audience)) return false
-    const folder = photo.folderId ? folderById.get(photo.folderId) : undefined
-    return !photo.folderId || Boolean(folder && folderAndAncestorsPublished(folder))
+
+  let visibleVideos = visibleVideosFor('audience')
+  let visiblePhotos = visiblePhotosFor('audience')
+  let usedFallback = false
+
+  const publishedVideosExist = allVideos.some((video) => video.isPublished)
+  const publishedPhotosExist = allPhotos.some((photo) => photo.isPublished)
+
+  const videoVisibilityReasons = allVideos.map((video) => {
+    if (!video.isPublished) return 'unpublished'
+    const folder = video.folderId ? folderById.get(video.folderId) : undefined
+    if (video.folderId && !folder) return 'folder-missing'
+    if (video.folderId && folder && !folderAndAncestorsPublished(folder)) return 'folder-unpublished'
+    if (!matchesVideoAudience(video, audience)) return 'audience'
+    return 'visible'
   })
-  const signedPhotos = await Promise.all(visiblePhotos.map(async (photo) => {
-    const { data, error } = await supabaseAdmin.storage.from('portal-practice-images').createSignedUrl(photo.storagePath, 60 * 30)
-    if (error || !data?.signedUrl) {
-      logger.warn('portal_content.practice_photo_sign_failed', { photoId: photo.id, error })
-      return null
+  const countReasons = (reasons: string[]) =>
+    reasons.reduce<Record<string, number>>((acc, reason) => {
+      const key = reason || 'visible'
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {})
+
+  // If audience + folder gating left nothing visible but published content
+  // exists, surface everything published so the library is never empty.
+  if (visibleVideos.length === 0 && visiblePhotos.length === 0 && (publishedVideosExist || publishedPhotosExist)) {
+    usedFallback = true
+    const alertKey = `portal:alert:fallback:${String(context.branchName || '')}:${String(context.batch || '')}:${String(context.belt || '')}:${new Date().toISOString().slice(0, 10)}`
+    if (await claimThrottleMarker(alertKey, 24 * 60 * 60)) {
+      logger.warn('portal_content.library_fallback_all_published', {
+        inputContext: { branchName: context.branchName, batch: context.batch, belt: context.belt },
+        resolvedAudience: audience,
+        rawCounts: { folders: allFolders.length, videos: allVideos.length, photos: allPhotos.length },
+        videoVisibility: countReasons(videoVisibilityReasons),
+      })
     }
-    return { ...photo, imageUrl: data.signedUrl }
+    visibleVideos = visibleVideosFor('fallback-all-published')
+    visiblePhotos = visiblePhotosFor('fallback-all-published')
+  }
+  const signedPhotos = await Promise.all(visiblePhotos.map(async (photo) => {
+    const cacheKey = `portal:photo_url:${photo.id}`
+    const cachedUrl = await cached<string | null>(cacheKey, 25 * 60, async () => {
+      const { data, error } = await supabaseAdmin.storage.from('portal-practice-images').createSignedUrl(photo.storagePath, 60 * 30)
+      if (error || !data?.signedUrl) {
+        logger.warn('portal_content.practice_photo_sign_failed', { photoId: photo.id, error })
+        return null
+      }
+      return data.signedUrl
+    })
+    if (!cachedUrl) return null
+    return { ...photo, imageUrl: cachedUrl }
   }))
   const availablePhotos = signedPhotos.filter((photo): photo is AthletePracticePhotoRecord => Boolean(photo))
 
@@ -811,11 +895,116 @@ export async function getPracticeLibraryForAthlete(context: {
   }
   const folders = foldersWithContents.filter((folder) => includedFolderIds.has(folder.id))
 
+  const unfiledVideos = visibleVideos.filter((video) => !video.folderId)
+  const unfiledPhotos = availablePhotos.filter((photo) => !photo.folderId)
+
+  if (!folders.length && !unfiledVideos.length && !unfiledPhotos.length) {
+    const publishedVideoCount = allVideos.filter(v => v.isPublished).length
+    const sampleVideoRestrictions = allVideos.slice(0, 5).map(v => ({
+      id: v.id,
+      title: v.title,
+      published: v.isPublished,
+      branchSlugs: v.branchSlugs,
+      batchNames: v.batchNames,
+      beltLevels: v.beltLevels,
+      folderId: v.folderId,
+    }))
+    const emptyAlertKey = `portal:alert:empty:${String(context.branchName || '')}:${String(context.batch || '')}:${String(context.belt || '')}:${new Date().toISOString().slice(0, 10)}`
+    if (await claimThrottleMarker(emptyAlertKey, 24 * 60 * 60)) {
+      logger.warn('portal_content.library_empty_for_athlete', {
+        inputContext: { branchName: context.branchName, batch: context.batch, belt: context.belt },
+        resolvedAudience: audience,
+        rawCounts: { folders: allFolders.length, videos: allVideos.length, photos: allPhotos.length },
+        publishedVideoCount,
+        usedFallback,
+        videoVisibility: countReasons(videoVisibilityReasons),
+        visibleCounts: { folders: visibleFolders.length, videos: visibleVideos.length, photos: visiblePhotos.length },
+        sampleVideoRestrictions,
+      })
+    }
+  }
+
   return {
     folders,
-    unfiledVideos: visibleVideos.filter((video) => !video.folderId),
-    unfiledPhotos: availablePhotos.filter((photo) => !photo.folderId),
+    unfiledVideos,
+    unfiledPhotos,
   }
+}
+
+/** Checks whether a folder and all its ancestors are published. */
+async function getFolderWithAncestorsPublished(folderId: string): Promise<PracticeFolderRecord | null> {
+  const allFolders = await getAllPracticeFoldersAdmin()
+  const folderById = new Map(allFolders.map((folder) => [folder.id, folder]))
+  const folder = folderById.get(folderId)
+  if (!folder) return null
+
+  const visited = new Set<string>()
+  let current: PracticeFolderRecord | undefined = folder
+  while (current) {
+    if (visited.has(current.id) || !current.isPublished) return null
+    visited.add(current.id)
+    current = current.parentFolderId ? folderById.get(current.parentFolderId) : undefined
+  }
+  return folder
+}
+
+export type PracticeProgressDatum = {
+  videoId: string
+  progressPercent: number
+  completed: boolean
+  lastWatchedAt: string
+}
+
+/**
+ * Siblings normally share one phone, so if any video in a folder was watched
+ * (>= 80%) the whole folder reads as completed for that account. This is a
+ * derived read-time view only — real progress rows are left untouched.
+ */
+export function applySharedPracticeCompletion(
+  folders: Array<{ id: string; videos: Array<{ id: string }> }>,
+  progressData: PracticeProgressDatum[]
+): PracticeProgressDatum[] {
+  if (!folders.length) return progressData
+
+  const entryByVideoId = new Map(progressData.map((entry, index) => [String(entry.videoId), index]))
+  const derived = progressData.slice()
+
+  for (const folder of folders) {
+    const members = (folder.videos || []).map((video) => String(video.id)).filter(Boolean)
+    if (members.length < 2) continue
+
+    const anyWatched = members.some((id) => {
+      const index = entryByVideoId.get(id)
+      return index !== undefined && derived[index].progressPercent >= WATCHED_THRESHOLD
+    })
+    if (!anyWatched) continue
+
+    let sharedLatest = 0
+    for (const id of members) {
+      const index = entryByVideoId.get(id)
+      if (index !== undefined) {
+        const watchedAt = new Date(derived[index].lastWatchedAt || 0).getTime()
+        if (Number.isFinite(watchedAt)) sharedLatest = Math.max(sharedLatest, watchedAt)
+      }
+    }
+
+    const markerTime = (sharedLatest || Date.now())
+    for (const id of members) {
+      const index = entryByVideoId.get(id)
+      if (index !== undefined) {
+        derived[index] = { ...derived[index], progressPercent: 100, completed: true }
+      } else {
+        derived.push({
+          videoId: id,
+          progressPercent: 100,
+          completed: true,
+          lastWatchedAt: new Date(markerTime).toISOString(),
+        })
+      }
+    }
+  }
+
+  return derived
 }
 
 /** Returns a single authorised lesson for a direct athlete-portal link. */
@@ -823,10 +1012,74 @@ export async function getPracticeLessonForAthlete(
   videoId: string,
   context: { branchName?: string | null; batch?: string | null; belt?: string | null }
 ) {
-  const library = await getPracticeLibraryForAthlete(context)
-  const video = [...library.folders.flatMap((folder) => folder.videos), ...library.unfiledVideos]
-    .find((entry) => entry.id === videoId)
-  return video || null
+  if (!isSupabaseReady()) {
+    const library = await getPracticeLibraryForAthlete(context)
+    return [...library.folders.flatMap((folder) => folder.videos), ...library.unfiledVideos]
+      .find((entry) => entry.id === videoId) || null
+  }
+
+  const audience = {
+    branchSlug: await resolveBranchSlugForName(context.branchName),
+    batch: String(context.batch || '').trim().toLowerCase(),
+    belt: normalizeBeltLevel(context.belt),
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('portal_videos')
+      .select('*')
+      .eq('id', videoId)
+      .eq('is_published', true)
+      .maybeSingle()
+
+    if (error) throw error
+    if (!data) return null
+
+    const video = mapPortalVideoRow(data)
+    const folderPublished = video.folderId
+      ? Boolean(await getFolderWithAncestorsPublished(video.folderId))
+      : true
+
+    if (matchesVideoAudience(video, audience) && folderPublished) {
+      return video
+    }
+
+    // Mirror the library's keep-published-content-visible rule: a published
+    // lesson the athlete can already see in their home-practice library must
+    // never turn into a 404 on its direct link, even when the strict audience
+    // check or a broken folder reference would otherwise hide it.
+    const library = await getPracticeLibraryForAthlete(context)
+    const surfaced = [
+      ...library.folders.flatMap((folder) => folder.videos),
+      ...library.unfiledVideos,
+    ].find((entry) => String(entry.id) === String(videoId))
+    return surfaced ? video : null
+  } catch (error) {
+    logger.warn('portal_content.lesson_direct_query_failed', { videoId, error })
+    const library = await getPracticeLibraryForAthlete(context)
+    return [...library.folders.flatMap((folder) => folder.videos), ...library.unfiledVideos]
+      .find((entry) => entry.id === videoId) || null
+  }
+}
+
+/** Builds the published ancestor path (root → leaf) for a folder id. */
+export async function getPracticeFolderPathForAthlete(folderId: string): Promise<Array<{ id: string; title: string }>> {
+  if (!folderId) return []
+  const allFolders = await getAllPracticeFoldersAdmin()
+  const folderById = new Map(allFolders.map((folder) => [folder.id, folder]))
+  const leaf = folderById.get(folderId)
+  if (!leaf) return []
+
+  const chain: Array<{ id: string; title: string }> = []
+  const visited = new Set<string>()
+  let current: PracticeFolderRecord | undefined = leaf
+  while (current) {
+    if (visited.has(current.id)) break
+    visited.add(current.id)
+    chain.unshift({ id: current.id, title: current.title })
+    current = current.parentFolderId ? folderById.get(current.parentFolderId) : undefined
+  }
+  return chain
 }
 
 export async function getTechniqueLibraryVideos(filters: {
@@ -865,6 +1118,7 @@ export async function createPortalVideo(payload: PortalVideoPayload) {
     .single()
 
   if (error) handlePortalContentError(error, 'portal_videos')
+  await invalidateCache('portal:videos:all')
   return mapPortalVideoRow(data)
 }
 
@@ -878,6 +1132,7 @@ export async function createPracticeFolder(payload: PracticeFolderPayload) {
     .select('*')
     .single()
   if (error) handlePortalContentError(error, 'portal_practice_folders')
+  await invalidateCache('portal:folders:all')
   return mapPracticeFolderRow(data)
 }
 
@@ -893,6 +1148,7 @@ export async function updatePracticeFolder(id: string, payload: PracticeFolderPa
     .select('*')
     .single()
   if (error) handlePortalContentError(error, 'portal_practice_folders')
+  await invalidateCache('portal:folders:all')
   return mapPracticeFolderRow(data)
 }
 
@@ -900,6 +1156,7 @@ export async function deletePracticeFolder(id: string) {
   ensureSupabaseForPortalContent()
   const { error } = await supabaseAdmin.from('portal_practice_folders').delete().eq('id', id)
   if (error) handlePortalContentError(error, 'portal_practice_folders')
+  await invalidateCache('portal:folders:all')
 }
 
 function matchesPracticePhotoAudience(photo: PracticePhotoRecord, context: AthletePracticeAudience) {
@@ -915,6 +1172,7 @@ export async function createPracticePhoto(payload: PracticePhotoPayload) {
     .select('*')
     .single()
   if (error) handlePortalContentError(error, 'portal_practice_photos')
+  await invalidateCache('portal:photos:all')
   return mapPracticePhotoRow(data)
 }
 
@@ -924,6 +1182,8 @@ export async function deletePracticePhoto(id: string) {
   if (error) handlePortalContentError(error, 'portal_practice_photos')
   const storagePath = String(data?.storage_path || '').trim()
   if (storagePath) await supabaseAdmin.storage.from('portal-practice-images').remove([storagePath])
+  await invalidateCache('portal:photos:all')
+  await invalidateCache(`portal:photo_url:${id}`)
 }
 
 export async function updatePortalVideo(id: string, payload: PortalVideoPayload) {
@@ -944,6 +1204,7 @@ export async function updatePortalVideo(id: string, payload: PortalVideoPayload)
     .single()
 
   if (error) handlePortalContentError(error, 'portal_videos')
+  await invalidateCache('portal:videos:all')
   return mapPortalVideoRow(data)
 }
 
@@ -967,6 +1228,7 @@ export async function deletePortalVideo(id: string) {
   ensureSupabaseForPortalContent()
   const { error } = await supabaseAdmin.from('portal_videos').delete().eq('id', id)
   if (error) handlePortalContentError(error, 'portal_videos')
+  await invalidateCache('portal:videos:all')
 }
 
 export type PracticeReorderScope = 'folders' | 'videos' | 'photos'
@@ -977,15 +1239,22 @@ const PRACTICE_REORDER_TABLE: Record<PracticeReorderScope, string> = {
   photos: 'portal_practice_photos',
 }
 
-/**
- * Applies a dragged order from FeeTrack by rewriting sort_order for each row
- * in the given scope. The portal already renders practice content with
- * `sort_order` ascending, so the first entry in `orderedIds` appears first.
- */
-export async function reorderPracticeContent(scope: PracticeReorderScope, orderedIds: string[]) {
-  ensureSupabaseForPortalContent()
-  const ids = [...new Set(orderedIds.map((id) => String(id).trim()).filter((id) => id.length > 0))]
-  if (!ids.length) throw new ApiError(400, 'Provide at least one practice content ID to reorder.')
+const PRACTICE_REORDER_CACHE_KEY: Record<PracticeReorderScope, string> = {
+  folders: 'portal:folders:all',
+  videos: 'portal:videos:all',
+  photos: 'portal:photos:all',
+}
+
+async function reorderViaRpc(scope: PracticeReorderScope, ids: string[]): Promise<number> {
+  const { data, error } = await supabaseAdmin.rpc('portal_reorder_practice_content', {
+    p_scope: scope,
+    p_ordered_ids: ids,
+  })
+  if (error) throw error
+  return Number(data ?? 0)
+}
+
+async function reorderSequentially(scope: PracticeReorderScope, ids: string[]): Promise<number> {
   const table = PRACTICE_REORDER_TABLE[scope]
   for (let index = 0; index < ids.length; index += 1) {
     const { error } = await supabaseAdmin
@@ -994,7 +1263,29 @@ export async function reorderPracticeContent(scope: PracticeReorderScope, ordere
       .eq('id', ids[index])
     if (error) handlePortalContentError(error, table)
   }
-  return { scope, orderedIds: ids }
+  return ids.length
+}
+
+/**
+ * Applies a dragged order from FeeTrack by rewriting sort_order for each row
+ * in the given scope. The portal already renders practice content with
+ * `sort_order` ascending, so the first entry in `orderedIds` appears first.
+ * Uses a transactional RPC when available and falls back to sequential updates
+ * on databases that have not yet applied the `052` migration.
+ */
+export async function reorderPracticeContent(scope: PracticeReorderScope, orderedIds: string[]) {
+  ensureSupabaseForPortalContent()
+  const ids = [...new Set(orderedIds.map((id) => String(id).trim()).filter((id) => id.length > 0))]
+  if (!ids.length) throw new ApiError(400, 'Provide at least one practice content ID to reorder.')
+
+  const updated = await reorderViaRpc(scope, ids).catch(async (error) => {
+    logger.warn('portal_content.reorder_rpc_fallback', { scope, error })
+    return reorderSequentially(scope, ids)
+  })
+
+  await invalidateCache(PRACTICE_REORDER_CACHE_KEY[scope])
+
+  return { scope, orderedIds: ids, updated }
 }
 
 export async function getAllBranchTimetablesAdmin() {
@@ -1142,8 +1433,14 @@ type AthleteAnalyticsRow = {
 
 /** Staff-only aggregate for FeeTrack's Website Analytics screen. */
 export async function getHomePracticeAnalytics(rangeDays = 90): Promise<HomePracticeAnalytics> {
-  ensureSupabaseForPortalContent()
   const safeRangeDays = Math.max(1, Math.min(365, Math.round(Number(rangeDays) || 90)))
+  return cached<HomePracticeAnalytics>(`portal:analytics:practice:${safeRangeDays}`, 5 * 60, () =>
+    computeHomePracticeAnalytics(safeRangeDays)
+  )
+}
+
+async function computeHomePracticeAnalytics(safeRangeDays: number): Promise<HomePracticeAnalytics> {
+  ensureSupabaseForPortalContent()
   const since = new Date(Date.now() - safeRangeDays * 24 * 60 * 60 * 1000).toISOString()
   const [{ data: progressRows, error: progressError }, videos] = await Promise.all([
     supabaseAdmin

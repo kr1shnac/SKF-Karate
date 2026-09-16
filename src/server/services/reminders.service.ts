@@ -1,6 +1,7 @@
 import { getLocalProfilePhotoFile } from '@/lib/server/profile-photos'
 import { getAllAthletesLive } from '@/lib/server/repositories/athletes-live'
 import { isSupabaseReady, supabaseAdmin } from '@/lib/server/supabase'
+import { isExternallyManagedBranch } from '@/data/constants/branches'
 import { env } from '@/src/server/config/env'
 import { logger } from '@/src/server/lib/logger'
 import {
@@ -249,6 +250,7 @@ async function getBirthdayReminders(todayKey: string): Promise<BirthdayReminder[
 
   return athletes
     .filter(isActiveAthlete)
+    .filter((athlete) => !isExternallyManagedBranch(athlete.branchName))
     .map((athlete) => {
       const nextBirthdayKey = nextBirthdayDateKey(String(athlete.dateOfBirth || ''), todayKey)
       if (!nextBirthdayKey) return null

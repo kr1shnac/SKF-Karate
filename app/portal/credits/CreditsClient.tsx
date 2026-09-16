@@ -30,6 +30,20 @@ type CreditsData = {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
+const MONTH_INDEX_BY_NAME: Record<string, number> = {
+  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+}
+
+/** usedMonth arrives as a full month name (e.g. "January" or "Nov"). */
+function monthAbbreviation(value: string | null | undefined) {
+  const key = String(value || '').trim().toLowerCase()
+  if (Object.prototype.hasOwnProperty.call(MONTH_INDEX_BY_NAME, key)) return MONTHS[MONTH_INDEX_BY_NAME[key]]
+  const numeric = Number(key)
+  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= 12) return MONTHS[numeric - 1]
+  return key
+}
+
 export default function CreditsClient() {
   const [data, setData] = useState<CreditsData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -149,7 +163,7 @@ export default function CreditsClient() {
                           Earned: {formatLocaleDate(credit.earnedAt, 'en-GB', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' })}
                           {credit.status === 'used' && credit.usedMonth && credit.usedYear && (
                             <span className="credit-entry__used-info">
-                              • Applied to {MONTHS[Number(credit.usedMonth)]} {credit.usedYear}
+                              • Applied to {monthAbbreviation(credit.usedMonth)} {credit.usedYear}
                             </span>
                           )}
                         </div>

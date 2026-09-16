@@ -5,7 +5,7 @@ import { Bell, CalendarRange, Clock, Megaphone } from 'lucide-react'
 
 export default function NoticesClient() {
   return (
-    <div style={{ padding: '2rem 1rem 4rem', maxWidth: '1420px', margin: '0 auto', width: '100%' }}>
+    <div style={{ padding: '2rem 1rem calc(6rem + env(safe-area-inset-bottom))', maxWidth: '1420px', margin: '0 auto', width: '100%' }}>
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} style={{ marginBottom: '3rem' }}>
         <h1 style={{ fontFamily: 'var(--font-heading, "Outfit")', fontSize: 'clamp(2.5rem, 5vw, 4rem)', fontWeight: 900, color: '#fff', letterSpacing: '-0.02em', lineHeight: 1.1, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <Bell size={48} color="var(--gold, #ffb703)" />

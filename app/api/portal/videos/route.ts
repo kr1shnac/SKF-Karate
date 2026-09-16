@@ -1,7 +1,7 @@
-import { getAthleteBySkfIdLive } from '@/lib/server/repositories/athletes-live'
-import { getPracticeLibraryForAthlete } from '@/lib/server/repositories/portal-content-live'
-import { NotFoundError } from '@/src/server/lib/errors'
+import { applySharedPracticeCompletion, getPracticeLibraryForAthlete } from '@/lib/server/repositories/portal-content-live'
+import { ok } from '@/src/server/lib/response'
 import { withRoute } from '@/src/server/lib/route'
+import { PortalRecommendationService } from '@/src/server/services/portal-recommendation.service'
 import { PortalVideoProgressService } from '@/src/server/services/portal-video-progress.service'
 
 export const GET = withRoute(
@@ -11,29 +11,41 @@ export const GET = withRoute(
     cacheControl: 'private, no-store',
   },
   async ({ portalSession }) => {
-    const athlete = await getAthleteBySkfIdLive(portalSession!.skfId!)
-    if (!athlete) {
-      throw new NotFoundError('Athlete')
-    }
-
-    // Keep the athlete landing experience to one authenticated request. The
-    // library and history queries are independent once the athlete is known.
+    // withRoute middleware already validated the athlete exists and is eligible.
+    // Use session claims directly to avoid a redundant getAthleteBySkfIdLive call.
     const [library, progress] = await Promise.all([
       getPracticeLibraryForAthlete({
-        branchName: athlete.branchName || portalSession!.branch || '',
-        batch: athlete.batch || portalSession!.batch || '',
-        belt: athlete.currentBelt || portalSession!.belt || '',
+        branchName: portalSession!.branch || '',
+        batch: portalSession!.batch || '',
+        belt: portalSession!.belt || '',
       }),
       PortalVideoProgressService.list(portalSession!.skfId!),
     ])
+    const visibleVideos = [
+      ...library.folders.flatMap((folder) => folder.videos),
+      ...library.unfiledVideos,
+    ]
+    const folderTitleById = new Map(library.folders.map((folder) => [folder.id, folder.title]))
+    const visibleVideosWithSeries = visibleVideos.map((video) =>
+      video.folderId ? { ...video, folderTitle: folderTitleById.get(video.folderId) || '' } : video
+    )
+    const derivedProgress = applySharedPracticeCompletion(library.folders, progress.progressData)
+    const decision = await PortalRecommendationService.decideAndStore({
+      skfId: portalSession!.skfId!,
+      videos: visibleVideosWithSeries,
+      progress: derivedProgress,
+      athleteBelt: portalSession!.belt || '',
+    })
 
-    return Response.json({
+    return ok({
       ...library,
       audience: {
-        belt: athlete.currentBelt || portalSession!.belt || '',
+        belt: portalSession!.belt || '',
       },
-      progressData: progress.progressData,
+      progressData: derivedProgress,
       recentlyAddedCutoff: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      recommendedVideoId: decision.pick?.videoId || '',
+      recommendationReason: decision.pick?.reasonLabel || '',
     })
   }
 )

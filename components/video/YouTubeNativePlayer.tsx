@@ -1,7 +1,7 @@
 'use client'
 
 import type { CSSProperties } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { ChevronDown, Maximize2, Pause, Play, Volume2, VolumeX } from 'lucide-react'
 
 type YouTubePlayerStateEvent = {
@@ -53,14 +53,58 @@ declare global {
   }
 }
 
+type FullscreenElementAwareDocument = Document & {
+  webkitFullscreenElement?: Element | null
+  mozFullScreenElement?: Element | null
+  msFullscreenElement?: Element | null
+  webkitExitFullscreen?: () => Promise<void>
+  mozCancelFullScreen?: () => Promise<void>
+  msExitFullscreen?: () => Promise<void>
+  webkitRequestFullscreen?: () => Promise<void>
+  mozRequestFullScreen?: () => Promise<void>
+  msRequestFullscreen?: () => Promise<void>
+}
+
+function getFullscreenElement() {
+  if (typeof document === 'undefined') return null
+  const doc = document as FullscreenElementAwareDocument
+  return document.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement
+}
+function exitFullscreen() {
+  if (typeof document === 'undefined') return Promise.resolve()
+  if (document.exitFullscreen) return document.exitFullscreen()
+  const doc = document as FullscreenElementAwareDocument
+  if (doc.webkitExitFullscreen) return doc.webkitExitFullscreen()
+  if (doc.mozCancelFullScreen) return doc.mozCancelFullScreen()
+  if (doc.msExitFullscreen) return doc.msExitFullscreen()
+  return Promise.resolve()
+}
+type RequestFullscreenLike = {
+  webkitRequestFullscreen?: () => Promise<void>
+  mozRequestFullScreen?: () => Promise<void>
+  msRequestFullscreen?: () => Promise<void>
+}
+
+function requestFullscreen(el: HTMLElement | null) {
+  if (!el) return Promise.resolve()
+  const fullscreenEl = el as HTMLElement & RequestFullscreenLike
+  if (el.requestFullscreen) return el.requestFullscreen()
+  if (fullscreenEl.webkitRequestFullscreen) return fullscreenEl.webkitRequestFullscreen()
+  if (fullscreenEl.mozRequestFullScreen) return fullscreenEl.mozRequestFullScreen()
+  if (fullscreenEl.msRequestFullscreen) return fullscreenEl.msRequestFullscreen()
+  return Promise.resolve()
+}
+
 type YouTubeNativePlayerProps = {
   youtubeId: string
-  title: string
-  posterUrl?: string
+  title?: string
+  posterUrl?: string | null
   initialProgressPercent?: number
-  onProgress?: (payload: { progressPercent: number }) => void
+  initialSeconds?: number
+  onProgress?: (data: { progressPercent: number; seconds?: number }) => void
   onComplete?: () => void
   onEscape?: () => void
+  onPlayStateChange?: (isPlaying: boolean) => void
   contentFormat?: 'landscape' | 'short'
 }
 
@@ -113,9 +157,11 @@ export default function YouTubeNativePlayer({
   title,
   posterUrl,
   initialProgressPercent = 0,
+  initialSeconds = 0,
   onProgress,
   onComplete,
   onEscape,
+  onPlayStateChange,
   contentFormat = 'landscape',
 }: YouTubeNativePlayerProps) {
   const playerHostRef = useRef<HTMLDivElement | null>(null)
@@ -128,6 +174,7 @@ export default function YouTubeNativePlayer({
   const onProgressRef = useRef(onProgress)
   const onCompleteRef = useRef(onComplete)
   const initialProgressRef = useRef(initialProgressPercent)
+  const initialSecondsRef = useRef(initialSeconds)
 
   const [isReady, setIsReady] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -143,9 +190,10 @@ export default function YouTubeNativePlayer({
 
   useEffect(() => {
     initialProgressRef.current = initialProgressPercent
+    initialSecondsRef.current = initialSeconds
     onProgressRef.current = onProgress
     onCompleteRef.current = onComplete
-  }, [initialProgressPercent, onComplete, onProgress])
+  }, [initialProgressPercent, initialSeconds, onComplete, onProgress])
 
   useEffect(() => {
     const query = window.matchMedia('(max-width: 640px), (max-height: 600px)')
@@ -187,10 +235,11 @@ export default function YouTubeNativePlayer({
               if (!player) return
 
               const iframe = player.getIframe()
-              iframe.setAttribute('title', title)
+              iframe.setAttribute('title', title || 'Video')
               iframe.style.pointerEvents = 'none'
               iframe.style.width = '100%'
               iframe.style.height = '100%'
+              iframe.style.transform = 'scale(1.15)'
 
               player.setVolume(80)
               try {
@@ -202,9 +251,16 @@ export default function YouTubeNativePlayer({
               setIsReady(true)
 
               const readyDuration = player.getDuration() || 0
-              const initialPercent = Math.max(0, Math.min(95, Number(initialProgressRef.current || 0)))
-              if (readyDuration > 0 && initialPercent > 0) {
-                const startAt = (readyDuration * initialPercent) / 100
+              const resumeAt = Number(initialSecondsRef.current || 0)
+              const rawPercent = Number(initialProgressRef.current || 0)
+              const percentResume = Math.max(0, Math.min(95, rawPercent))
+              // A finished lesson (>= 100%, or a resume point at the very end)
+              // starts over from the top — never dumps the kid back at 95%.
+              if (rawPercent < 100 && resumeAt > 3 && resumeAt < (readyDuration - 3)) {
+                player.seekTo(resumeAt, true)
+                setCurrentTime(resumeAt)
+              } else if (readyDuration > 0 && rawPercent > 0 && rawPercent < 100) {
+                const startAt = (readyDuration * percentResume) / 100
                 player.seekTo(startAt, true)
                 setCurrentTime(startAt)
               }
@@ -226,7 +282,7 @@ export default function YouTubeNativePlayer({
                   Math.abs(nextProgress - lastReportedProgressRef.current) >= 5
                 ) {
                   lastReportedProgressRef.current = nextProgress
-                  onProgressRef.current?.({ progressPercent: nextProgress })
+                  onProgressRef.current?.({ progressPercent: nextProgress, seconds: Math.floor(nextCurrentTime) })
                 }
               }, 500)
             },
@@ -240,7 +296,10 @@ export default function YouTubeNativePlayer({
                 if (!completedReportedRef.current) {
                   completedReportedRef.current = true
                   lastReportedProgressRef.current = 100
-                  onProgressRef.current?.({ progressPercent: 100 })
+                  onProgressRef.current?.({
+                    progressPercent: 100,
+                    seconds: finalDuration > 0 ? Math.floor(finalDuration) : undefined,
+                  })
                   onCompleteRef.current?.()
                 }
               }
@@ -271,6 +330,10 @@ export default function YouTubeNativePlayer({
   }, [title, youtubeId])
 
   useEffect(() => {
+    onPlayStateChange?.(isPlaying)
+  }, [isPlaying, onPlayStateChange])
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -288,7 +351,8 @@ export default function YouTubeNativePlayer({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- togglePlayback is deliberately re-subscribed alongside the state it reads.
+  }, [isReady, isPlaying, isCompact, isSpeedMenuOpen, onEscape])
 
   useEffect(() => {
     if (!isPlaying || !controlsVisible) return
@@ -307,10 +371,17 @@ export default function YouTubeNativePlayer({
   function togglePlayback() {
     const player = playerRef.current
     if (!player || !isReady) return
-
     if (isPlaying) {
+      if (getFullscreenElement()) {
+        exitFullscreen().catch(() => {})
+      }
       player.pauseVideo()
     } else {
+      if (playerHostRef.current && !getFullscreenElement()) {
+        try {
+          requestFullscreen(playerHostRef.current).catch(() => {})
+        } catch {}
+      }
       player.playVideo()
     }
   }
@@ -361,15 +432,15 @@ export default function YouTubeNativePlayer({
     const host = playerHostRef.current
     if (!host) return
 
-    if (document.fullscreenElement) {
-      await document.exitFullscreen()
+    if (getFullscreenElement()) {
+      await exitFullscreen()
     } else {
-      await host.requestFullscreen()
+      await requestFullscreen(host)
     }
   }
 
   const progress = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0
-  const controlSize = isCompact ? 36 : 44
+  const controlSize = 44
 
   return (
     <div
@@ -380,6 +451,7 @@ export default function YouTubeNativePlayer({
       onMouseMove={revealControls}
       onTouchStart={revealControls}
       onClick={togglePlayback}
+      onContextMenu={(e) => e.preventDefault()}
       style={{
         position: 'relative',
         width: '100%',
@@ -431,28 +503,33 @@ export default function YouTubeNativePlayer({
       ) : null}
 
       {isReady && !isPlaying ? (
-        <button
-          type="button"
-          aria-label="Play video"
-          onClick={(event) => {
-            event.stopPropagation()
-            togglePlayback()
-          }}
-          style={{
-            ...roundButtonStyle,
-            position: 'absolute',
-            left: '50%',
-            top: '50%',
-            width: isCompact ? 56 : 78,
-            height: isCompact ? 56 : 78,
-            transform: 'translate(-50%, -50%)',
-            background: 'rgba(255,255,255,0.94)',
-            color: '#050505',
-            fontSize: '2rem',
-          }}
-        >
-          <Play size={isCompact ? 23 : 30} fill="currentColor" />
-        </button>
+        <>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 90, background: 'linear-gradient(to bottom, rgba(0,0,0,1) 30%, rgba(0,0,0,0) 100%)', pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 90, background: 'linear-gradient(to top, rgba(0,0,0,1) 30%, rgba(0,0,0,0) 100%)', pointerEvents: 'none' }} />
+          <button
+            type="button"
+            aria-label="Play video"
+            onClick={(event) => {
+              event.stopPropagation()
+              togglePlayback()
+            }}
+            style={{
+              ...roundButtonStyle,
+              position: 'absolute',
+              left: '50%',
+              top: '50%',
+              width: isCompact ? 56 : 78,
+              height: isCompact ? 56 : 78,
+              transform: 'translate(-50%, -50%)',
+              background: 'rgba(255,255,255,0.94)',
+              color: '#050505',
+              fontSize: '2rem',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+            }}
+          >
+            <Play size={isCompact ? 23 : 30} fill="currentColor" />
+          </button>
+        </>
       ) : null}
 
       <div
@@ -484,7 +561,7 @@ export default function YouTubeNativePlayer({
             width: '100%',
             accentColor: '#d62828',
             cursor: 'pointer',
-            minHeight: isCompact ? 18 : 24,
+            minHeight: 24,
           }}
         />
 
@@ -519,9 +596,7 @@ export default function YouTubeNativePlayer({
             style={{ width: '100%', minHeight: 24, accentColor: '#fff' }}
           /> : null}
 
-          <span style={{ minWidth: isCompact ? 70 : 92, fontSize: isCompact ? '0.72rem' : '0.88rem', color: 'rgba(255,255,255,0.78)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-            {formatTime(currentTime)} / {formatTime(duration)}
-          </span>
+          <TimeLabel currentTime={currentTime} duration={duration} isCompact={isCompact} />
 
           <div style={{ position: 'relative', width: '100%' }}>
             <button
@@ -538,9 +613,11 @@ export default function YouTubeNativePlayer({
             </div> : null}
           </div>
 
-          <button type="button" aria-label="Toggle fullscreen" onClick={toggleFullscreen} style={{ ...controlButtonStyle, width: controlSize, height: controlSize }}>
-            <Maximize2 size={isCompact ? 17 : 20} />
-          </button>
+          {!isPlaying ? (
+            <button type="button" aria-label="Toggle fullscreen" onClick={toggleFullscreen} style={{ ...controlButtonStyle, width: controlSize, height: controlSize }}>
+              <Maximize2 size={20} />
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -582,3 +659,16 @@ const controlButtonStyle = {
   border: '1px solid rgba(255,255,255,0.14)',
   fontSize: '1rem',
 } satisfies CSSProperties
+
+/**
+ * Isolated time readout. The player polls the YouTube API a couple of times a
+ * second while playing; scoping those ticks to this leaf keeps full re-renders
+ * of the control bar (and its subscriptions) from happening on every poll.
+ */
+const TimeLabel = memo(function TimeLabel({ currentTime, duration, isCompact }: { currentTime: number; duration: number; isCompact: boolean }) {
+  return (
+    <span style={{ minWidth: isCompact ? 70 : 92, fontSize: isCompact ? '0.72rem' : '0.88rem', color: 'rgba(255,255,255,0.78)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+      {formatTime(currentTime)} / {formatTime(duration)}
+    </span>
+  )
+})

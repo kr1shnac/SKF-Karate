@@ -691,7 +691,7 @@ export default function AthleteProfileClient({
         totalB={totalB} 
       />
 
-      <div style={{ height: '5rem' }} />
+      <div style={{ height: 'calc(7rem + env(safe-area-inset-bottom))' }} />
     </div>
   )
 }

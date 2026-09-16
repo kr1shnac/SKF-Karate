@@ -600,6 +600,7 @@
   .bb-tabs::-webkit-scrollbar { display: none; }
   .bb-tab { 
     padding: 0.6rem 1.25rem; 
+    min-height: 44px;
     border-radius: 999px; 
     background: var(--glass);
     border: 1px solid var(--edge);

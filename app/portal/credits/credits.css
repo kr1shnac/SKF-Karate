@@ -293,7 +293,7 @@
 @media (max-width: 600px) {
   /* ── Page spacing ── */
   .credits-page {
-    padding: 1rem 0.75rem 5rem;
+    padding: 1rem 0.75rem calc(6rem + env(safe-area-inset-bottom));
   }
 
   .credits-header {
