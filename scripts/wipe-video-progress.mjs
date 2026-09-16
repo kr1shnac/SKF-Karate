@@ -34,16 +34,9 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
 
 async function wipeProgress() {
   console.log('Wiping all video progress for all students...')
-  
-  // Wipe video_progress table
-  const { error } = await supabase
-    .from('video_progress')
-    .delete()
-    .neq('skf_id', 'invalid_dummy_id_just_to_delete_all') 
 
-  // Since Supabase requires a filter to delete all rows via REST API:
-  // Let's use a filter that matches everything, e.g. not null.
-  
+  // Supabase requires a filter to delete all rows via REST API,
+  // so use a filter that matches everything, e.g. not null.
   const { error: deleteError } = await supabase
     .from('video_progress')
     .delete()

@@ -5,9 +5,6 @@ import { logger } from '@/src/server/lib/logger'
 import { timingSafeStringEqual } from '@/src/server/lib/security'
 import { FeeOperationsService } from '@/src/server/services/fee-operations.service'
 
-export const runtime = 'nodejs'
-export const dynamic = 'force-dynamic'
-
 const PRACTICE_BUCKET = 'portal-practice-images'
 const WRITE_ROLES = new Set(['admin', 'instructor', 'fee_manager'])
 const FEE_TRACK_ROLES = new Set(FeeOperationsService.roles)

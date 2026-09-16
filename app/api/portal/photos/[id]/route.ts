@@ -5,8 +5,6 @@ import { supabaseAdmin } from '@/lib/server/supabase'
 import { cached } from '@/src/server/lib/cache'
 import { logger } from '@/src/server/lib/logger'
 
-export const dynamic = 'force-dynamic'
-
 export async function GET(request: Request, props: { params: Promise<{ id: string }> }) {
   const athleteContext = await getPortalAthleteFromCookies()
   if (!athleteContext) {
