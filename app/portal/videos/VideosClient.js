@@ -27,7 +27,6 @@ import PortalNoticePopup from '@/app/_components/portal/PortalNoticePopup'
 import YouTubeNativePlayer from '@/components/video/YouTubeNativePlayer'
 import YouTubeThumbnail from '@/components/video/YouTubeThumbnail'
 import { VideosPageSkeleton } from '../_components/skeletons/VideosPageSkeleton'
-import { useNonce } from '@/components/NonceProvider'
 import { redirectToCurrentPortalLogin } from '@/app/_components/portal/portalClientRedirect'
 
 /**
@@ -76,7 +75,7 @@ function normaliseLibraryPayload(payload) {
 const SHELF_EASE = [0.16, 1, 0.3, 1]
 
 export default function VideosClient({ initialPayload = null }) {
-  const nonce = useNonce()
+  
   const initialLibrary = useMemo(() => initialPayload ? normaliseLibraryPayload(initialPayload) : null, [initialPayload])
   const [folders, setFolders] = useState(() => initialLibrary?.folders || [])
   const [unfiledVideos, setUnfiledVideos] = useState(() => initialLibrary?.unfiledVideos || [])
