@@ -82,21 +82,24 @@ export class PortalRecommendationService {
     const chosen = chosenId ? ranked.find((video) => video.id === chosenId) : undefined
     const pick = chosen ? pickForVideo(chosen, input.athleteBelt) : null
 
-    try {
-      await supabaseAdmin.from('athlete_recommendations').upsert(
-        {
-          skf_id: input.skfId,
-          video_id: pick?.videoId || '',
-          reason_key: pick?.reasonKey || 'default',
-          reason_label: pick?.reasonLabel || 'Recommended for you',
-          visit_count: visitCount,
-          last_shown_at: new Date().toISOString(),
-        },
-        { onConflict: 'skf_id' }
-      )
-    } catch (error) {
-      logger.warn('portal_recommendation.save_failed', { skfId: input.skfId, error })
-    }
+    // Background the database write so it doesn't block SSR
+    void (async () => {
+      try {
+        await supabaseAdmin.from('athlete_recommendations').upsert(
+          {
+            skf_id: input.skfId,
+            video_id: pick?.videoId || '',
+            reason_key: pick?.reasonKey || 'default',
+            reason_label: pick?.reasonLabel || 'Recommended for you',
+            visit_count: visitCount,
+            last_shown_at: new Date().toISOString(),
+          },
+          { onConflict: 'skf_id' }
+        )
+      } catch (error) {
+        logger.warn('portal_recommendation.save_failed', { skfId: input.skfId, error })
+      }
+    })()
 
     return { pick, visitCount }
   }

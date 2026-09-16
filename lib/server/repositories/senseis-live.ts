@@ -517,6 +517,50 @@ export async function getBranchCoachNameMapLive() {
   return map
 }
 
+/**
+ * Focused, per-request cached coach map used by the athlete dashboard. Instead
+ * of hydrating every full sensei profile (bios, images, achievements), it reads
+ * only `senseis(id,name)` + `class_branches(name,lead_sensei_id)` and produces
+ * the same `{ branchName: sensei.name }` mapping. Falls back to the full
+ * dataset when the branch table is missing or Supabase is unavailable.
+ */
+export const getBranchCoachNameMapLiveFocused = cache(async function getBranchCoachNameMapLiveFocused(): Promise<Record<string, string>> {
+  if (isSupabaseReady()) {
+    try {
+      const [{ data: senseiRows, error: senseiError }, { data: branchRows, error: branchError }] =
+        await Promise.all([
+          supabaseAdmin.from('senseis').select('id,name'),
+          supabaseAdmin.from('class_branches').select('name,lead_sensei_id'),
+        ])
+
+      if (senseiError) throw senseiError
+      if (branchError && branchError.code !== 'PGRST205') throw branchError
+
+      const nameById = new Map<string, string>(
+        ((senseiRows || []) as Array<{ id: string; name: string }>).map((sensei) => [sensei.id, sensei.name])
+      )
+
+      const map: Record<string, string> = {}
+      for (const branch of (branchRows || []) as Array<{ name: string; lead_sensei_id: string | null }>) {
+        if (!branch.lead_sensei_id) continue
+        const name = nameById.get(branch.lead_sensei_id)
+        if (name) map[branch.name] = name
+      }
+
+      if (branchError && branchError.code === 'PGRST205') {
+        logger.warn('senseis_live.coach_map_branch_table_missing', { error: branchError })
+        return getBranchCoachNameMapLive()
+      }
+
+      return map
+    } catch (error) {
+      logger.warn('senseis_live.coach_map_focused_fallback', { error })
+    }
+  }
+
+  return getBranchCoachNameMapLive()
+})
+
 async function prepareSenseiUpsertPayload(
   input: Partial<SenseiProfile> & { achievementsText?: string },
   existing?: SenseiRow | null

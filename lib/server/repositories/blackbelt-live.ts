@@ -5,7 +5,8 @@
  * This follows the same pattern as athletes-live.ts and events-live.ts.
  */
 
-import { supabaseAdmin } from '@/lib/server/supabase'
+import { supabaseAdmin, isSupabaseReady } from '@/lib/server/supabase'
+import { cached } from '@/src/server/lib/cache'
 import { logger } from '@/src/server/lib/logger'
 import { normaliseBlackBeltCandidateId } from '@/data/constants/blackbelt'
 
@@ -293,9 +294,21 @@ export async function getBBProgramForCandidate(skfId?: string | null): Promise<B
 /**
  * True when the athlete is assigned to any Black Belt program.
  * Used by both the portal navigation and the route guard so visibility matches access.
+ * Redis-cached per athlete (2 min) so the candidate check is not repeated on
+ * every client-side navigation; without Redis it degrades to a direct read.
  */
 export async function isBBCandidate(skfId?: string | null): Promise<boolean> {
-  return Boolean(await getBBCandidateBySkfIdAcrossPrograms(skfId))
+  if (!skfId) return false
+
+  const lookup = () => getBBCandidateBySkfIdAcrossPrograms(skfId)
+
+  if (isSupabaseReady()) {
+    return cached(`portal:bb-candidate:${skfId}`, 120, async () =>
+      Boolean(await lookup())
+    )
+  }
+
+  return Boolean(await lookup())
 }
 
 export const isActiveBBCandidate = isBBCandidate

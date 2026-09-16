@@ -17,7 +17,7 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
-type TournamentDatabaseRow = {
+export type TournamentDatabaseRow = {
   id?: string
   slug?: string
   name?: string
@@ -117,7 +117,7 @@ function normaliseTournamentPayload(
   }
 }
 
-function mapTournamentRowToRecord(row: TournamentDatabaseRow): TournamentRecord {
+export function mapTournamentRowToRecord(row: TournamentDatabaseRow): TournamentRecord {
   return {
     id: row.id || '',
     slug: row.slug || '',

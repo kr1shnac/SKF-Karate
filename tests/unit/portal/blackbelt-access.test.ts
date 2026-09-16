@@ -13,6 +13,7 @@ vi.mock('@/lib/server/supabase', () => ({
   supabaseAdmin: {
     from: supabaseState.from,
   },
+  isSupabaseReady: () => true,
 }))
 
 vi.mock('@/src/server/lib/logger', () => ({
@@ -21,6 +22,10 @@ vi.mock('@/src/server/lib/logger', () => ({
     warn: vi.fn(),
     info: vi.fn(),
   },
+}))
+
+vi.mock('@/src/server/lib/cache', () => ({
+  cached: (_key: string, _ttlSeconds: number, fetcher: () => Promise<unknown>) => fetcher(),
 }))
 
 const BLACK_BELT_CANDIDATES = [

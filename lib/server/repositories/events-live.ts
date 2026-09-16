@@ -5,6 +5,7 @@ import { ApiError } from '../api'
 import { isSupabaseReady, supabaseAdmin } from '../supabase'
 import { logger } from '@/src/server/lib/logger'
 import { isPgrst303 } from '@/src/server/lib/pgrst-errors'
+import { getAssignedPortalEvents } from '@/lib/utils/portal-events'
 import {
   buildUnifiedTournamentEvent,
   getAllEventsAdmin,
@@ -16,6 +17,8 @@ import {
   getAllTournamentsLive,
   getTournamentByIdLive,
   getTournamentBySlugLive,
+  mapTournamentRowToRecord,
+  type TournamentDatabaseRow,
   updateTournamentLive,
 } from './tournaments-live'
 import type {
@@ -332,6 +335,71 @@ export async function getAllEventsLive() {
     seen.add(event.id)
     return true
   }))
+}
+
+const UPCOMING_EVENT_COLUMNS = [
+  'id', 'slug', 'name', 'short_name', 'type', 'status', 'level', 'date', 'end_date',
+  'venue', 'city', 'state', 'is_published', 'is_featured', 'show_in_journey',
+  'hosting_branch', 'participants', 'created_at', 'updated_at',
+].join(',')
+
+const UPCOMING_TOURNAMENT_COLUMNS = [
+  'id', 'slug', 'name', 'short_name', 'status', 'level', 'date', 'end_date',
+  'venue', 'city', 'state', 'is_published', 'is_featured', 'show_in_journey',
+  'participants', 'created_at', 'updated_at',
+].join(',')
+
+/**
+ * Lightweight upcoming-events feed for the athlete dashboard. Only fetches the
+ * published standalone events + tournaments dated today or later, minus the
+ * heavy `results` / `winners` / `description` / `cover_image_url` columns that
+ * the "next events" widget never reads. Falls back to the full
+ * `getAllEventsLive()` source when the database is unavailable.
+ */
+export async function getUpcomingPortalEventsLive(skfId?: string | null) {
+  if (isSupabaseReady()) {
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+    const fromDate = todayStart.toISOString()
+
+    const [eventsQuery, tournamentsQuery] = await Promise.all([
+      supabaseAdmin
+        .from('events')
+        .select(UPCOMING_EVENT_COLUMNS)
+        .eq('is_published', true)
+        .gte('date', fromDate)
+        .order('date', { ascending: true }),
+      supabaseAdmin
+        .from('tournaments')
+        .select(UPCOMING_TOURNAMENT_COLUMNS)
+        .eq('is_published', true)
+        .gte('date', fromDate)
+        .order('date', { ascending: true }),
+    ])
+
+    if (eventsQuery.error) throw eventsQuery.error
+    if (tournamentsQuery.error) throw tournamentsQuery.error
+
+    const seen = new Set<string>()
+    const merged = [
+      ...(((eventsQuery.data || []) as unknown) as EventDatabaseRow[]).map((row) => buildUnifiedStoredEvent(mapEventRowToRecord(row))),
+      ...(((tournamentsQuery.data || []) as unknown) as TournamentDatabaseRow[]).map((row) => buildUnifiedTournamentEvent(mapTournamentRowToRecord(row))),
+    ].filter((event) => {
+      if (seen.has(event.id)) return false
+      seen.add(event.id)
+      return true
+    })
+
+    return skfId ? getAssignedPortalEvents(merged, skfId) : merged
+  }
+
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const allEvents = await getAllEventsLive()
+  const upcoming = allEvents.filter(
+    (event) => new Date(event.date || '').getTime() >= todayStart.getTime()
+  )
+  return skfId ? getAssignedPortalEvents(upcoming, skfId) : upcoming
 }
 
 export async function getEventByIdAdminLive(id: string) {

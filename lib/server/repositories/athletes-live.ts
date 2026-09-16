@@ -370,6 +370,82 @@ async function readAllAthletesFromDatabase(): Promise<AthleteRecord[]> {
   return allData.map(mapAthleteRowToRecord)
 }
 
+/**
+ * The only columns the ranking / search / featured pipelines touch. Keeping
+ * the dashboard's rank computation off the full `athletes` table (which
+ * carries points history, attendance, contacts and photos for the admin) cuts
+ * the payload dramatically without changing any ranking output.
+ */
+const RANKING_SEARCH_COLUMNS = [
+  'id',
+  'skf_id',
+  'first_name',
+  'last_name',
+  'branch_name',
+  'current_belt',
+  'date_of_birth',
+  'gender',
+  'status',
+  'achievements',
+  'join_date',
+  'photo_url',
+  'is_public',
+  'is_featured',
+]
+
+async function readAthletesByColumnsFromDatabase(columns: string[]): Promise<AthleteRecord[]> {
+  const allData: Record<string, unknown>[] = []
+  let offset = 0
+  const pageSize = 1000
+
+  while (true) {
+    const { data, error } = await supabaseAdmin
+      .from('athletes')
+      .select(columns.join(','))
+      .order('created_at', { ascending: false })
+      .range(offset, offset + pageSize - 1)
+
+    if (error) throw error
+    if (!data || data.length === 0) break
+    allData.push(...(data as unknown as Record<string, unknown>[]))
+    if (data.length < pageSize) break
+    offset += pageSize
+
+    if (data.length < pageSize) break
+    offset += pageSize
+  }
+
+  return allData.map(mapAthleteRowToRecord)
+}
+
+/**
+ * Minimal athlete projection for rank computation, name search, and the
+ * featured-search results widget. Never used for admin CRUD or any screen
+ * that needs the full profile.
+ */
+const getAthleteRankDataset = cache(async function getAthleteRankDataset(): Promise<AthleteRecord[]> {
+  if (!isSupabaseReady()) {
+    return cloneAthleteData(getAllAthletes() as unknown as AthleteRecord[])
+  }
+
+  try {
+    return await readAthletesByColumnsFromDatabase(RANKING_SEARCH_COLUMNS)
+  } catch (error) {
+    if (isPgrst303(error)) {
+      logger.warn('athletes_live.rank_pgrst303_retry', { error })
+      await sleep(PGRST303_RETRY_MS)
+      try {
+        return await readAthletesByColumnsFromDatabase(RANKING_SEARCH_COLUMNS)
+      } catch (retryError) {
+        logger.warn('athletes_live.rank_local_fallback_retry_failed', { error: retryError })
+      }
+    } else {
+      logger.warn('athletes_live.rank_local_fallback', { error })
+    }
+    return cloneAthleteData(getAllAthletes() as unknown as AthleteRecord[])
+  }
+})
+
 const getAthleteDataset = cache(async function getAthleteDataset(): Promise<AthleteRecord[]> {
   if (!isSupabaseReady()) {
     return cloneAthleteData(getAllAthletes() as unknown as AthleteRecord[])
@@ -570,7 +646,7 @@ export async function searchAthletesByNameLive(query: string) {
   const lowerQuery = query.toLowerCase().trim()
   const normalizedSkfQuery = normaliseSkfId(query).toLowerCase()
   const compactSkfQuery = normalizedSkfQuery.replace(/-/g, '')
-  const athletes = await getAthleteDataset()
+  const athletes = await getAthleteRankDataset()
   const rankSnapshots = buildRankSnapshotsForAthletes(athletes)
   const rankMap = new Map(rankSnapshots.map((entry) => [String(entry.athleteId), entry]))
 
@@ -651,7 +727,7 @@ export async function searchAthletesByNameLive(query: string) {
 }
 
 export async function getFeaturedAthleteSearchResultsLive(limit = 6) {
-  const athletes = await getAthleteDataset()
+  const athletes = await getAthleteRankDataset()
   const rankSnapshots = buildRankSnapshotsForAthletes(athletes)
   const rankMap = new Map(rankSnapshots.map((entry) => [String(entry.athleteId), entry]))
 
@@ -674,12 +750,12 @@ export async function getFeaturedAthleteSearchResultsLive(limit = 6) {
 }
 
 export async function getRankSnapshotsLive() {
-  const athletes = await getAthleteDataset()
+  const athletes = await getAthleteRankDataset()
   return buildRankSnapshotsForAthletes(athletes)
 }
 
 export async function getAthleteRankLive(athleteId: string) {
-  const athletes = await getAthleteDataset()
+  const athletes = await getAthleteRankDataset()
   const results = buildCompetitionResultsFromAthletes(athletes as unknown as Athlete[])
   const rankInfo = getAthleteRankEntry(athleteId, athletes as unknown as Athlete[], results)
 

@@ -3,7 +3,6 @@ import { cache } from 'react'
 
 import { BELTS } from '@/data/constants/belts'
 
-import { findClassBranchByName, findClassBranchBySlug } from '@/lib/classes/catalog'
 import { ApiError } from '@/lib/server/api'
 import { isPublicTechniqueVideosEnabled } from '@/lib/server/feature-flags'
 import { isSupabaseReady, supabaseAdmin } from '@/lib/server/supabase'
@@ -546,14 +545,63 @@ function normaliseBranchTimetablePayload(payload: BranchTimetablePayload) {
   }
 }
 
+/**
+ * Resolve an athlete's branch name/slug to the `class_branches.slug` used by
+ * practice content. This replaces the full 4-table `getAllCitiesLive()` read on
+ * the practice library path with a tiny `(slug, name)` projection that is
+ * coalesced in Redis for an hour and de-duplicated per request, so the home
+ * practice page no longer pays for the complete class/school/sensei dataset on
+ * every visit. Matching semantics are identical to
+ * `findClassBranchByName`/`findClassBranchBySlug` (trimmed, case-insensitive).
+ */
+const branchSlugCandidates = cache(async function branchSlugCandidates(): Promise<
+  Array<{ slug: string; name: string }>
+> {
+  if (isSupabaseReady()) {
+    return cached('portal:branch-slug-candidates', 3600, async () => {
+      const { data, error } = await supabaseAdmin
+        .from('class_branches')
+        .select('slug,name')
+        .order('sort_order', { ascending: true })
+        .order('name', { ascending: true })
+      if (error) {
+        logger.warn('portal_content.branch_candidates_load_failed', { error })
+        throw error
+      }
+      return (data || []).map((row) => ({
+        slug: String(row.slug),
+        name: String(row.name),
+      }))
+    })
+  }
+
+  const cities = await getAllCitiesLive()
+  return cities.flatMap((city) =>
+    city.branches.map((branch) => ({
+      slug: String(branch.slug),
+      name: String(branch.name),
+    }))
+  )
+})
+
 const resolveBranchSlugForName = cache(async function resolveBranchSlugForName(branchName?: string | null) {
   if (!branchName) return ''
-  const cities = await getAllCitiesLive()
-  return (
-    findClassBranchByName(cities, branchName)?.slug ||
-    findClassBranchBySlug(cities, branchName)?.slug ||
-    slugify(branchName)
-  )
+  const normalizedBranch = String(branchName).trim().toLowerCase()
+
+  const candidates = await branchSlugCandidates()
+
+  const matchByRule = (normalize: (value: string) => string, candidate: string) =>
+    normalize(candidate) === normalizedBranch
+  const normalizeName = (value: string) => String(value).trim().toLowerCase()
+
+  const byName = candidates.find((candidate) => matchByRule(normalizeName, candidate.name))
+  if (byName) return byName.slug
+
+  const normalizeSlug = (value: string) => String(value).trim().toLowerCase()
+  const bySlug = candidates.find((candidate) => matchByRule(normalizeSlug, candidate.slug))
+  if (bySlug) return bySlug.slug
+
+  return slugify(branchName)
 })
 
 function matchesAudienceFilter(values: string[], candidate: string) {
@@ -856,20 +904,10 @@ export async function getPracticeLibraryForAthlete(context: {
     visibleVideos = visibleVideosFor('fallback-all-published')
     visiblePhotos = visiblePhotosFor('fallback-all-published')
   }
-  const signedPhotos = await Promise.all(visiblePhotos.map(async (photo) => {
-    const cacheKey = `portal:photo_url:${photo.id}`
-    const cachedUrl = await cached<string | null>(cacheKey, 25 * 60, async () => {
-      const { data, error } = await supabaseAdmin.storage.from('portal-practice-images').createSignedUrl(photo.storagePath, 60 * 30)
-      if (error || !data?.signedUrl) {
-        logger.warn('portal_content.practice_photo_sign_failed', { photoId: photo.id, error })
-        return null
-      }
-      return data.signedUrl
-    })
-    if (!cachedUrl) return null
-    return { ...photo, imageUrl: cachedUrl }
+  const availablePhotos = visiblePhotos.map((photo): AthletePracticePhotoRecord => ({
+    ...photo,
+    imageUrl: `/api/portal/photos/${photo.id}`
   }))
-  const availablePhotos = signedPhotos.filter((photo): photo is AthletePracticePhotoRecord => Boolean(photo))
 
   const foldersWithContents = visibleFolders
     .map((folder) => ({
