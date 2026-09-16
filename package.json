@@ -91,6 +91,9 @@
     "minimatch@9.0.9": {
       "brace-expansion": "2.0.3"
     },
+    "browserslist": "4.29.0",
+    "qs": "6.16.0",
+    "baseline-browser-mapping": "2.11.24",
     "next": {
       "postcss": "8.5.26"
     },
