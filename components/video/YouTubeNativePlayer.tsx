@@ -360,6 +360,33 @@ export default function YouTubeNativePlayer({
     hideControlsTimerRef.current = window.setTimeout(() => setControlsVisible(false), 3000)
   }, [controlsVisible, isPlaying])
 
+  useEffect(() => {
+    function handleFullscreenChange() {
+      if (!getFullscreenElement()) {
+        try {
+          if (screen.orientation && screen.orientation.unlock) {
+            screen.orientation.unlock()
+          }
+        } catch {}
+      }
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange)
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange)
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange)
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange)
+      try {
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock()
+        }
+      } catch {}
+    }
+  }, [])
+
   function revealControls() {
     setControlsVisible(true)
     if (hideControlsTimerRef.current) window.clearTimeout(hideControlsTimerRef.current)
@@ -379,7 +406,11 @@ export default function YouTubeNativePlayer({
     } else {
       if (playerHostRef.current && !getFullscreenElement()) {
         try {
-          requestFullscreen(playerHostRef.current).catch(() => {})
+          requestFullscreen(playerHostRef.current).then(() => {
+            if (contentFormat === 'landscape' && screen.orientation && screen.orientation.lock) {
+              screen.orientation.lock('landscape').catch(() => {})
+            }
+          }).catch(() => {})
         } catch {}
       }
       player.playVideo()
@@ -436,6 +467,13 @@ export default function YouTubeNativePlayer({
       await exitFullscreen()
     } else {
       await requestFullscreen(host)
+      if (contentFormat === 'landscape') {
+        try {
+          if (screen.orientation && screen.orientation.lock) {
+            await screen.orientation.lock('landscape')
+          }
+        } catch {}
+      }
     }
   }
 

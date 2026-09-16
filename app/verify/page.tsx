@@ -1,13 +1,10 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, type FormEvent } from 'react'
 import { Award, DatabaseBackup, Fingerprint, LoaderCircle, Search, ShieldCheck, Settings, X } from 'lucide-react'
-import { isCertificateNumber, isVerificationCode } from '@/lib/certificates/registration'
 import './verify.css'
 
 export default function CertificateSearchPage() {
-    const router = useRouter()
     const [query, setQuery] = useState('')
     const [isLoading, setIsLoading] = useState(false)
     const [maintenance, setMaintenance] = useState(false)

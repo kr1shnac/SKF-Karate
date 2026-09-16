@@ -1,10 +1,9 @@
 'use client'
 
-import { useMemo, useState, useRef, useEffect } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import type { ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import html2canvas from 'html2canvas'
 import { RankingCard } from '@/components/RankingCard'
 import {
   Search, ChevronRight, Eye, Share2,
@@ -15,8 +14,6 @@ import '@/app/athlete-profile.css'
 import '@/app/athlete-hero.css'
 import '@/app/rankings/rankings.css'
 import { CertificateModal } from '@/components/CertificateModal'
-import { CertificateCard } from '@/components/CertificateCard'
-import type { CertificateConfig } from '@/components/CertificateCard'
 
 function formatName(name: string) {
   if (!name) return name
@@ -29,8 +26,6 @@ function formatName(name: string) {
 /* ═══════════════════════════════════════════════════════════════════════
    PUBLIC CERTIFICATES
    ═══════════════════════════════════════════════════════════════════════ */
-type PublicCertificate = Omit<CertificateConfig, 'onView'>
-
 type CompetitionResult = {
   date: string
   event: string
@@ -96,36 +91,6 @@ function sumHonours(categories: CompetitionCategory[], medal: 'gold' | 'silver' 
     (sum, category) =>
       sum + (category.honours || []).reduce((inner, honour) => inner + Number(honour[medal] || 0), 0),
     0
-  )
-}
-
-function PublicCertificates({ skfId, onOpenCertificate }: { skfId: string, onOpenCertificate: (id: string) => void }) {
-  const [certs, setCerts] = useState<PublicCertificate[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    if (!skfId) return
-    fetch(`/api/certificates/public?skfId=${skfId}`)
-      .then(res => res.json())
-      .then(data => setCerts(data.certificates || data.data?.certificates || []))
-      .catch(() => undefined)
-      .finally(() => setLoading(false))
-  }, [skfId])
-
-  if (loading || certs.length === 0) return null
-
-  return (
-    <section className="ap-section ap-animate-in ap-delay-3" id="verified-certificates">
-      <SectionHeader icon={<Shield size={16} />} label="Verified Certificates" />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
-        {certs.map((c) => (
-          <CertificateCard 
-            key={c.id} 
-            cert={{ ...c, onView: () => onOpenCertificate(c.id) }} 
-          />
-        ))}
-      </div>
-    </section>
   )
 }
 
@@ -221,6 +186,8 @@ function AthleteHero({
               src={athleteInfo.photo}
               alt={athleteInfo.name}
               fill
+              priority
+              sizes="(min-width: 480px) 220px, 170px"
               crossOrigin="anonymous"
               style={{ objectFit: 'cover' }}
               onError={(e) => {
@@ -629,6 +596,7 @@ export default function AthleteProfileClient({
     if (!cardRef.current) return
     setIsExporting(true)
     try {
+      const { default: html2canvas } = await import('html2canvas')
       const canvas = await html2canvas(cardRef.current, {
         scale: 2,
         useCORS: true,
@@ -644,11 +612,6 @@ export default function AthleteProfileClient({
     } finally {
       setIsExporting(false)
     }
-  }
-
-  const handleOpenCertificate = (id: string) => {
-    setSelectedEnrollmentId(id)
-    setModalOpen(true)
   }
 
   // To match the new tabbed layout spec without destroying the whole page,
@@ -677,7 +640,10 @@ export default function AthleteProfileClient({
 
       <CertificateModal 
         isOpen={modalOpen} 
-        onClose={() => setModalOpen(false)} 
+        onClose={() => {
+          setModalOpen(false)
+          setSelectedEnrollmentId(null)
+        }} 
         enrollmentId={selectedEnrollmentId || ''}
         skfId={athleteInfo.id}
       />

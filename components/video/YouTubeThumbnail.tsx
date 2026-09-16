@@ -19,6 +19,7 @@ export default function YouTubeThumbnail({ youtubeId, alt, ...imageProps }: YouT
       {...imageProps}
       src={getYouTubeThumbnailUrl(youtubeId, quality)}
       alt={alt}
+      unoptimized={true}
       onError={() => setFallbackThumbnailId(youtubeId)}
     />
   )

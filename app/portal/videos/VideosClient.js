@@ -24,7 +24,8 @@ import {
 
 import SecureContentWrapper from '@/app/_components/portal/SecureContentWrapper'
 import PortalNoticePopup from '@/app/_components/portal/PortalNoticePopup'
-import YouTubeNativePlayer from '@/components/video/YouTubeNativePlayer'
+import dynamic from 'next/dynamic'
+const YouTubeNativePlayer = dynamic(() => import('@/components/video/YouTubeNativePlayer'), { ssr: false })
 import YouTubeThumbnail from '@/components/video/YouTubeThumbnail'
 import { VideosPageSkeleton } from '../_components/skeletons/VideosPageSkeleton'
 import { redirectToCurrentPortalLogin } from '@/app/_components/portal/portalClientRedirect'

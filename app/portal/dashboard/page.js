@@ -4,18 +4,18 @@ import { buildRestoredAthleteProfileData } from '@/app/_components/athlete/profi
 import {
   getAthleteRankLive,
 } from '@/lib/server/repositories/athletes-live'
-import { getAllEventsLive } from '@/lib/server/repositories/events-live'
-import { getBranchCoachNameMapLive } from '@/lib/server/repositories/senseis-live'
+import { getUpcomingPortalEventsLive } from '@/lib/server/repositories/events-live'
+import { getBranchCoachNameMapLiveFocused } from '@/lib/server/repositories/senseis-live'
 
 export default async function DojoDashboard() {
   const { athlete } = await requirePortalAthlete({ callbackUrl: '/portal/dashboard' })
 
-  const [rankInfo, allEvents, branchCoachMap] = await Promise.all([
+  const [rankInfo, upcomingEvents, branchCoachMap] = await Promise.all([
     getAthleteRankLive(athlete.id),
-    getAllEventsLive(),
-    getBranchCoachNameMapLive(),
+    getUpcomingPortalEventsLive(athlete.skfId),
+    getBranchCoachNameMapLiveFocused(),
   ])
-  const profile = buildRestoredAthleteProfileData(athlete, rankInfo, allEvents, branchCoachMap)
+  const profile = buildRestoredAthleteProfileData(athlete, rankInfo, upcomingEvents, branchCoachMap)
 
   return <AthleteProfileClient {...profile} isDashboardContext={true} />
 }
