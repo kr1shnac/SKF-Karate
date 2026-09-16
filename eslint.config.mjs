@@ -32,7 +32,7 @@ const eslintConfig = [
     rules: {
       'no-console': ['warn', { allow: ['error', 'warn', 'info'] }],
       '@typescript-eslint/no-explicit-any': 'error',
-      '@typescript-eslint/no-unused-vars': 'error',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       'react-hooks/exhaustive-deps': 'warn',
     },
   },

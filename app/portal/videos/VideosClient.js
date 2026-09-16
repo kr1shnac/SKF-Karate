@@ -23,7 +23,6 @@ import {
 } from 'lucide-react'
 
 import SecureContentWrapper from '@/app/_components/portal/SecureContentWrapper'
-import PortalNoticePopup from '@/app/_components/portal/PortalNoticePopup'
 import dynamic from 'next/dynamic'
 const YouTubeNativePlayer = dynamic(() => import('@/components/video/YouTubeNativePlayer'), { ssr: false })
 import YouTubeThumbnail from '@/components/video/YouTubeThumbnail'
@@ -88,7 +87,6 @@ export default function VideosClient({ initialPayload = null }) {
   const [isLoading, setIsLoading] = useState(() => !initialLibrary)
   const [error, setError] = useState('')
   const [playingVideo, setPlayingVideo] = useState(null)
-  const [isVideoPlaying, setIsVideoPlaying] = useState(false)
   const [activeFolder, setActiveFolder] = useState(null)
   const [deepLinkResolved, setDeepLinkResolved] = useState(false)
   const [libraryQuery, setLibraryQuery] = useState('')
@@ -521,7 +519,6 @@ export default function VideosClient({ initialPayload = null }) {
 
   function closePlayerToLibrary() {
     setPlayingVideo(null)
-    setIsVideoPlaying(false)
   }
 
   // Calculate breadcrumbs for active folder view
@@ -582,8 +579,6 @@ export default function VideosClient({ initialPayload = null }) {
 
   return (
     <SecureContentWrapper>
-      <PortalNoticePopup />
-
       <MotionConfig reducedMotion="user">
       {isLoading ? (
         <VideosPageSkeleton />
@@ -799,7 +794,7 @@ export default function VideosClient({ initialPayload = null }) {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className={`pv-player ${isVideoPlaying ? 'pv-player--cinematic' : ''}`}
+                className="pv-player"
               >
                 {/* Floating Back Button */}
                 <button type="button" onClick={closePlayerToLibrary} className="pv-floating-back pv-tap pv-focus">
@@ -812,13 +807,11 @@ export default function VideosClient({ initialPayload = null }) {
                       <YouTubeNativePlayer
                         youtubeId={playingVideo.youtubeId}
                         title={playingVideo.title}
-                        posterUrl={playingVideo.thumbnail}
                         initialProgressPercent={Number(progressByVideoId.get(playingVideo.id)?.progressPercent || 0)}
                         initialSeconds={Number(progressByVideoId.get(playingVideo.id)?.watchedSeconds || 0)}
                         contentFormat={playingVideo.contentFormat}
                         onProgress={({ progressPercent, seconds }) => saveProgress(playingVideo.id, progressPercent, seconds)}
                         onEscape={closePlayerToLibrary}
-                        onPlayStateChange={setIsVideoPlaying}
                       />
                     </div>
                     

@@ -300,14 +300,6 @@
 
 /* ── Player overlay ── */
 .pv-player{position:fixed;top:0;right:0;bottom:0;left:0;z-index:99999;background:#000;display:flex;flex-direction:column}
-.pv-player--cinematic .pv-floating-back{opacity:0;pointer-events:none}
-.pv-player--cinematic .pv-vhead{display:none}
-.pv-player--cinematic .pv-huge-complete{display:none}
-.pv-player--cinematic .pv-pmeta{display:none}
-.pv-player--cinematic .pv-note{display:none}
-.pv-player--cinematic .pv-viewer{padding:0;--pv-chrome:0rem;align-items:center}
-.pv-player--cinematic .pv-pcol{max-width:100%;height:100vh;margin:0;justify-content:center}
-.pv-player--cinematic .pv-pbox{border-radius:0;border:none;max-height:100vh}
 /* Floating Back */
 .pv-floating-back{position:absolute;top:max(1rem,env(safe-area-inset-top));left:max(1rem,env(safe-area-inset-left));
   display:inline-flex;align-items:center;gap:.3rem;padding:.5rem 1rem .5rem .6rem;
@@ -342,18 +334,21 @@
 .pv-btn-practiced:hover{background:rgba(255,183,3,.12);border-color:rgba(255,183,3,.5)}
 .pv-btn-practiced b{display:inline-grid;place-items:center;min-width:2rem;height:2rem;padding:0 .5rem;
   border-radius:99px;background:rgba(255,183,3,.22);border:1px solid rgba(255,183,3,.6);font-size:.9rem}
-.pv-player--cinematic .pv-btn-practiced{display:none}
 .pv-viewer{--pv-chrome:15rem;flex:1;width:100%;min-height:0;display:flex;justify-content:center;
   overflow-y:auto;overscroll-behavior:contain;
   padding:3.5rem var(--pv-pad-x) max(2rem,env(safe-area-inset-bottom))}
-.pv-pcol{width:100%;display:flex;flex-direction:column;gap:1.1rem;margin:auto}
+.pv-pcol{width:100%;display:flex;flex-direction:column;gap:1.1rem;margin:auto;pointer-events:auto}
 .pv-pcol--wide{max-width:min(1280px,calc((100vh - var(--pv-chrome)) * 16 / 9));
   max-width:min(1280px,calc((100dvh - var(--pv-chrome)) * 16 / 9))}
 .pv-pcol--short{max-width:min(440px,calc((100vh - var(--pv-chrome)) * 9 / 16));
   max-width:min(440px,calc((100dvh - var(--pv-chrome)) * 9 / 16))}
 .pv-pmeta{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem}
-.pv-pbox{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:clamp(12px,2vw,24px);
+.pv-pbox{position:relative;width:100%;aspect-ratio:16/9;pointer-events:auto;
   border:1px solid rgba(255,255,255,.12);background:#000;box-shadow:0 25px 70px rgba(0,0,0,.85)}
+/* IMPROVISATION: Desktop gets the premium rounded corners. Mobile stays square to avoid iOS Safari touch-blocking bugs. */
+@media (min-width: 1024px) {
+  .pv-pbox { overflow: hidden; border-radius: clamp(12px, 2vw, 24px); }
+}
 .pv-pbox--short{aspect-ratio:9/16}
 .pv-note{position:relative;border-radius:20px;border:1px solid rgba(255,255,255,.08);
   background:linear-gradient(180deg,rgba(30,30,35,.8) 0%,rgba(15,15,18,.9) 100%);

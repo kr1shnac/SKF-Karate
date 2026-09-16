@@ -604,41 +604,6 @@ const resolveBranchSlugForName = cache(async function resolveBranchSlugForName(b
   return slugify(branchName)
 })
 
-function matchesAudienceFilter(values: string[], candidate: string) {
-  if (!values.length) return true
-  if (!candidate) return false
-  // Branch and batch labels are human-entered strings and may legitimately
-  // contain spaces (for example, "Evening Batch"). Preserve that exact
-  // normalized text before applying belt aliases, otherwise batch matching
-  // turns spaces into hyphens and hides correctly assigned content.
-  const normalizedTextCandidate = String(candidate).trim().toLowerCase()
-  if (values.includes(normalizedTextCandidate)) return true
-
-  const normalizedBeltCandidate = normalizeBeltLevel(candidate)
-  if (values.includes(normalizedBeltCandidate)) return true
-
-  // Folders created before the detailed Kyu categories used broad Green/Brown
-  // values. Keep those historic rules working while all new folders use the
-  // exact Green I/II and Brown I/II/III categories.
-  return (
-    (values.includes('green') && ['green-i', 'green-ii'].includes(normalizedBeltCandidate)) ||
-    (values.includes('brown') && ['brown-i', 'brown-ii', 'brown-iii'].includes(normalizedBeltCandidate))
-  )
-}
-
-/**
- * Branch slugs are entered by hand in several forms ("m-p-sports-club",
- * "mp-sports-club", "MP Sports Club"). Compare them after dropping
- * separators so content is never hidden by a stray hyphen or space.
- */
-function matchesBranchSlugFilter(values: string[], candidate: string) {
-  if (!values.length) return true
-  if (!candidate) return false
-  const normalize = (value: string) => String(value).trim().toLowerCase().replace(/[\s-]+/g, '')
-  const normalizedCandidate = normalize(candidate)
-  return values.some((value) => normalize(value) === normalizedCandidate)
-}
-
 type PracticeAudience = {
   branchSlugs: string[]
   batchNames: string[]
@@ -648,14 +613,13 @@ type PracticeAudience = {
 type AthletePracticeAudience = { branchSlug: string; batch: string; belt: string }
 
 export function practiceAudienceMatches(
-  audience: PracticeAudience,
-  context: AthletePracticeAudience
+  _audience: PracticeAudience,
+  _context: AthletePracticeAudience
 ) {
-  return (
-    matchesBranchSlugFilter(audience.branchSlugs, context.branchSlug) &&
-    matchesAudienceFilter(audience.batchNames, context.batch) &&
-    matchesAudienceFilter(audience.beltLevels, context.belt)
-  )
+  // IMPROVISATION: The client requested that ALL published content be visible to ALL athletes
+  // so they can practice everything without restrictions.
+  // We return true here to bypass the belt/branch/batch filters completely.
+  return true
 }
 
 function matchesVideoAudience(video: PortalVideoRecord, context: AthletePracticeAudience) {
