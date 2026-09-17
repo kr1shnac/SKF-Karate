@@ -13,7 +13,7 @@ export const SEO_TITLE =
 export const SEO_TITLE_SHORT = 'SKF Karate'
 
 export const SEO_KEYWORDS =
-  'SKF, SKF Karate, Sports Karate Do Fitness and Self-Defense Association, karate association India, best karate India, Karnataka karate, Bangalore karate, Kunigal karate, Herohalli karate, Anjanagar karate, Ullal Nagar karate, karate training Bangalore, karate tournament India, self-defense Karnataka, martial arts Bangalore, digital karate association India, student ranking karate, karate history tracking, karate profile India, karate for kids Bangalore, karate championship Karnataka, number one karate India, best karate Karnataka, karate near me Bangalore, karate classes Magadi Road, karate Sunkadakatte, karate Vijayanagar, karate Rajajinagar, karate Malleshwaram, karate JP Nagar, karate Banashankari, karate Electronic City, karate Whitefield, karate Indiranagar, kumite, kata, black belt India, karate federation, shotokan karate, karate dojo, kihon, kobudo, self-defense classes, karate for adults, karate for women, online karate student tracking India, karate student ranking system India, karate belt tracking, karate achievement records, modern karate association India'
+  'SKF, SKF Karate, Sports Karate Do Fitness and Self-Defense Association, karate association India, best karate India, Karnataka karate, Bangalore karate, Kunigal karate, Herohalli karate, Anjanagar karate, Ullal Nagar karate, karate training Bangalore, karate tournament India, self-defense Karnataka, martial arts Bangalore, digital karate association India, student ranking karate, karate history tracking, karate profile India, karate for kids Bangalore, karate championship Karnataka, number one karate India, best karate Karnataka, karate near me Bangalore, karate classes Magadi Road, karate Sunkadakatte, karate Vijayanagar, karate Rajajinagar, karate Malleshwaram, karate JP Nagar, karate Banashankari, karate Electronic City, karate Whitefield, karate Indiranagar, kumite, kata, black belt India, karate federation, shotokan karate, karate dojo, kihon, kobudo, self-defense classes, karate for adults, karate for women, online karate student tracking India, karate student ranking system India, karate belt tracking, karate achievement records, modern karate association India, karate blog India, martial arts blog, karate tips, learn karate online, karate guide, best karate blog'
 
 export const SEO_ROBOTS =
   'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1'
@@ -30,6 +30,8 @@ type SeoMetadataOptions = {
   imageAlt?: string
   /** Override the default SEO_TITLE for this page */
   title?: string
+  /** Add additional keywords specific to this page */
+  keywords?: string[]
 }
 
 function cleanDescription(description: string) {
@@ -59,11 +61,15 @@ export function buildSeoMetadata(
   const imageAlt = options.imageAlt || SEO_IMAGE_ALT
   const metaDescription = normalizeMetaDescription(description)
   const title = options.title || SEO_TITLE
+  
+  const mergedKeywords = options.keywords 
+    ? `${options.keywords.join(', ')}, ${SEO_KEYWORDS}` 
+    : SEO_KEYWORDS
 
   return {
     title,
     description: metaDescription,
-    keywords: SEO_KEYWORDS,
+    keywords: mergedKeywords,
     authors: [{ name: 'Sports Karate Do Fitness and Self-Defense Association (SKF)' }],
     publisher: 'SKF – Sports Karate Do Fitness and Self-Defense Association',
     robots: SEO_ROBOTS,

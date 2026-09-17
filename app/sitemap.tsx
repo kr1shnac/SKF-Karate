@@ -93,8 +93,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const blogRoutes = posts.map((post) => ({
     path: `/blog/${post.slug}`,
-    priority: 0.7,
-    changeFrequency: 'monthly' as const,
+    priority: 0.8,
+    changeFrequency: 'weekly' as const,
   }))
 
   const instructors = Array.from(

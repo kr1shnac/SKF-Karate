@@ -5,6 +5,7 @@ import { getPublishedBlogPostsLive } from '@/lib/server/repositories/blogs-live'
 import { formatLocaleDate } from '@/lib/utils/format-date'
 import JsonLdScript from '@/components/JsonLdScript'
 import { buildBreadcrumbJsonLd, buildSeoMetadata } from '@/data/constants/seo'
+import { absoluteSiteUrl } from '@/data/constants/siteConfig'
 import './blog.css'
 
 export const metadata = buildSeoMetadata(
@@ -25,6 +26,25 @@ function formatDate(value: string | null) {
 export default async function BlogPage() {
   const posts = await getPublishedBlogPostsLive()
   const breadcrumbJsonLd = buildBreadcrumbJsonLd('Blog', '/blog')
+  
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Blog',
+    name: 'SKF Karate Journal',
+    description: 'Practical karate guides, written for real students. Clear answers for beginners, parents, adult students, belt progression, dojo etiquette, kata, kumite, cost, and training mindset.',
+    url: absoluteSiteUrl('/blog'),
+    publisher: {
+      '@type': 'Organization',
+      name: 'SKF Karate'
+    },
+    blogPost: posts.map(post => ({
+      '@type': 'BlogPosting',
+      headline: post.title,
+      url: absoluteSiteUrl(`/blog/${post.slug}`),
+      datePublished: post.publishedAt || post.createdAt
+    }))
+  }
+
   const featuredPosts = posts.filter((post) => post.isFeatured).slice(0, 3)
   const heroPost = featuredPosts[0] || posts[0]
   const secondaryFeaturedPosts = featuredPosts.filter((post) => post.slug !== heroPost?.slug)
@@ -34,6 +54,7 @@ export default async function BlogPage() {
   return (
     <main className="blog-page">
       <JsonLdScript data={breadcrumbJsonLd} />
+      <JsonLdScript data={jsonLd} />
 
       {/* Ambient Orbs */}
       <div className="blog-amb-orb blog-amb-orb--1" aria-hidden="true" />

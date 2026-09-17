@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, ArrowUpRight, BookOpen, CalendarDays, Clock } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 
 import {
   getBlogPostBySlugLive,
@@ -17,12 +18,7 @@ type PageProps = {
   params: Promise<{ slug: string }>
 }
 
-function paragraphs(content: string) {
-  return String(content || '')
-    .split(/\n\s*\n/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-}
+
 
 function formatDate(value: string | null) {
   if (!value) return 'SKF Guide'
@@ -45,7 +41,11 @@ export async function generateMetadata({ params }: PageProps) {
   return buildSeoMetadata(
     `/blog/${post.slug}`,
     `${post.title}. ${post.excerpt}`,
-    { image: post.coverImageUrl || '/og-image.png', imageAlt: post.title }
+    { 
+      image: post.coverImageUrl || '/og-image.png', 
+      imageAlt: post.title,
+      keywords: post.tags 
+    }
   )
 }
 
@@ -66,7 +66,7 @@ export default async function BlogDetailPage({ params }: PageProps) {
     ? related
     : posts.filter((entry) => entry.slug !== post.slug).slice(0, 3)
 
-  const articleParagraphs = paragraphs(post.content)
+
   const orderedPosts = [...posts].sort((a, b) => {
     const orderDiff = Number(a.sortOrder || 999) - Number(b.sortOrder || 999)
     if (orderDiff !== 0) return orderDiff
@@ -83,7 +83,7 @@ export default async function BlogDetailPage({ params }: PageProps) {
 
   const jsonLd = {
     '@context': 'https://schema.org',
-    '@type': 'Article',
+    '@type': 'BlogPosting',
     headline: post.title,
     description: post.excerpt,
     image: absoluteMediaUrl(post.coverImageUrl || '/og-image.png'),
@@ -102,6 +102,9 @@ export default async function BlogDetailPage({ params }: PageProps) {
     datePublished: post.publishedAt || post.createdAt,
     dateModified: post.updatedAt,
     mainEntityOfPage: absoluteSiteUrl(`/blog/${post.slug}`),
+    keywords: post.tags.join(', '),
+    articleSection: post.category,
+    wordCount: post.content.split(/\\s+/).length,
   }
   const breadcrumbJsonLd = buildBreadcrumbJsonLd(post.title, `/blog/${post.slug}`)
 
@@ -143,12 +146,8 @@ export default async function BlogDetailPage({ params }: PageProps) {
           </div>
         </header>
 
-        <div className="blog-reader__content blog-reveal blog-reveal--3">
-          {articleParagraphs.map((paragraph, index) => (
-            <p key={index} className={index === 0 ? 'blog-reader__lead' : undefined}>
-              {paragraph}
-            </p>
-          ))}
+        <div className="blog-reader__content blog-reveal blog-reveal--3 blog-prose">
+          <ReactMarkdown>{post.content}</ReactMarkdown>
         </div>
       </article>
 
